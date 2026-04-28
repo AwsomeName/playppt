@@ -1,0 +1,31 @@
+---
+description: play-ppt 开发约束 — 文档优先级、里程碑与汇报格式
+alwaysApply: true
+---
+
+# play-ppt 开发约束（自动应用）
+
+## 单一真相源
+
+- **开发与验收以 `docs/ai-dev-plan.md` 为唯一执行依据**（状态机、接口、里程碑、Mock/降级、验收命令）。
+- 若与 `docs/project.md`、`docs/prd.md`、`docs/product.md` 冲突：**以 `docs/ai-dev-plan.md` 为准**。
+
+## 执行方式
+
+- 按里程碑 **M0 → M5** 推进；**一次只完成一个 Milestone**，避免跨里程碑大改。
+- 每步完成后按 `docs/ai-dev-plan.md` 中的 **「AI 每步输出模板」** 汇报（变更文件、验证命令与结果、风险、下一步）。
+- 外部服务不可用时：**先 mock**，不阻塞主链路；在输出中标注假设与待替换项。
+- 改动范围遵守 `ai-dev-plan.md` 2.1 节 B（允许/禁止目录）。
+
+## 新会话续作
+
+- 先对照仓库现状与 `docs/ai-dev-plan.md` 判断已完成到哪一里程碑，再从**下一里程碑**继续。
+- 不确定进度时：先读代码与 git 状态，再开工。
+
+## 技术默认
+
+- 前端 `apps/web`，后端 `apps/server`，npm workspace；具体命令见 `ai-dev-plan.md` 2.1 节 A/C。
+
+## MCP 与浏览器联调
+
+- 若需**通过 MCP** 在开发机/IDE 中**操作浏览器**：**必须**只使用 **Playwright 官方 MCP**（`@playwright/mcp`），**不得**以其它「浏览器/自动化」类 MCP 作为默认或推荐；细则见 `docs/ai-dev-plan.md` 第 1.1.9 节与第 2 节。仓库 E2E 用 Playwright Test，与 MCP 分工见同文档。

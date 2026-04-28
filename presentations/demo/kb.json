@@ -1,0 +1,9 @@
+{
+  "chunks": [
+    {
+      "id": "project-overview",
+      "title": "项目背景（非幻灯片内文）",
+      "body": "play-ppt 用于在浏览器中讲解 Web 演示稿；解说词与页内容在 presentations 目录的 JSON 中维护，可配合知识库回答幻灯片外问题。"
+    }
+  ]
+}

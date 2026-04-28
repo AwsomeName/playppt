@@ -1,0 +1,21 @@
+{
+  "name": "play-ppt",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w apps/server && npm run build -w apps/web",
+    "lint": "npm run lint -w apps/server && npm run lint -w apps/web",
+    "test": "npm run test -w apps/server && npm run test -w apps/web",
+    "e2e": "playwright test",
+    "gen-scripts": "npm run gen-scripts -w apps/server --",
+    "convert-pptx": "npm run convert-pptx -w apps/server --"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
