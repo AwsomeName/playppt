@@ -91,11 +91,29 @@ npm run e2e
 - `VOLC_APP_ID`
 - `VOLC_ACCESS_TOKEN`
 - `VOLC_SECRET_KEY`
-- `VOLC_TTS_RESOURCE_ID`
-- `VOLC_TTS_SPEAKER`
+- `VOLC_TTS_RESOURCE_ID`（默认 `seed-tts-2.0`，火山豆包大模型 TTS）
+- `VOLC_TTS_SPEAKER`（默认 `zh_female_meilinvyou_saturn_bigtts`）
 - `VOLC_ASR_RESOURCE_ID`
 
 真实密钥不要写入文档或提交；如需临时绕过外部服务，可设 `AI_PROVIDER=mock`。
+
+### 切换 TTS 音色
+
+火山豆包大模型 TTS（`seed-tts-2.0`）有几十种内置音色，把 `VOLC_TTS_SPEAKER` 改成对应 ID 即可，无需重启前端，下一次合成自动生效。常用中文音色（按场景）：
+
+| Speaker ID | 风格 | 备注 |
+| --- | --- | --- |
+| `zh_female_meilinvyou_saturn_bigtts` | 甜美女友 | 当前默认，亲切柔和 |
+| `zh_female_qingxin_bigtts` | 清新女声 | 偏轻快、信息播报感 |
+| `zh_female_wanwanxiaohe_bigtts` | 婉婉小荷 | 温润书卷气 |
+| `zh_female_shuangkuaisisi_bigtts` | 爽快思思 | 节奏快、通勤播客感 |
+| `zh_male_M392_conversation_wvae_bigtts` | 自然对话男声 | 适合讲解/培训 |
+| `zh_male_chunhou_bigtts` | 醇厚男声 | 中年稳重、纪录片感 |
+| `zh_male_wennuanahu_bigtts` | 温暖阿虎 | 暖男口播，偏年轻 |
+| `zh_male_yuanboxiaoshu_bigtts` | 渊博小叔 | 解说/科普 |
+| `zh_male_jingyangboshi_bigtts` | 静雅博士 | 学术、专业感 |
+
+更多音色名见火山豆包大模型 TTS 控制台「音色市场」。如需让讲解听起来更自然，本项目已经做了**逐句切分 + 句间 280ms 停顿**：每页讲稿在服务端按中文标点切句，前端依次播放，省得整段一气呵成像背稿。
 
 ## 演示稿目录
 

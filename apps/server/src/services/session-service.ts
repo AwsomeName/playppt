@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
+import { classifyTranscriptIntent } from '../ai/intent-classify.js';
+import { checkEchoOverlap } from '../ai/echo-filter.js';
 import { getTtsBackendHint } from '../ai/provider.js';
 import { runQaPipeline } from '../ai/qa-answer.js';
 import { config } from '../config.js';
@@ -51,7 +53,14 @@ export type VoicePipelineResult =
   | { kind: 'control'; transcript: string; result: ControlResult }
   | { kind: 'answered'; transcript: string; ask: AskResult }
   | { kind: 'suggest_ask'; transcript: string; text: string; message: string }
-  | { kind: 'rejected'; transcript: string; message: string; code?: string };
+  | { kind: 'rejected'; transcript: string; message: string; code?: string }
+  | {
+      kind: 'ignored';
+      transcript: string;
+      reason: string;
+      /** true：分类走了启发式（无 LLM key 或 LLM 失败） */
+      classifierFallback: boolean;
+    };
 
 export interface SessionPageSnapshot {
   pageNo: number;
@@ -801,6 +810,14 @@ export const sessionService = {
     };
   },
 
+  /**
+   * 语音/文本管线（与 ai-dev-plan 1.1.4 对齐）：
+   * 1) 命中正则短命令 → 直接执行（control）；
+   * 2) 否则调用 LLM 意图分类器（intent-classify）：
+   *    - question + 可作答态 → 走 submitAsk（answered）
+   *    - irrelevant → ignored，前端不打断 TTS
+   *    - 不在可作答态（idle/end/paused/...）→ suggest_ask 提示
+   */
   async processVoiceText(sid: string, transcript: string): Promise<VoicePipelineResult> {
     const s = sessions.get(sid);
     if (!s) {
@@ -810,31 +827,80 @@ export const sessionService = {
     if (it.kind === 'control') {
       return { kind: 'control', transcript, result: it.result };
     }
-    if (it.kind === 'ask_suggestion') {
-      if (s.fsm.top === 'presenting' || s.fsm.top === 'qa') {
-        const a = await sessionService.submitAsk(sid, { question: it.text, currentPage: s.fsm.currentPage });
-        if ('error' in a) {
+
+    // Echo 自激过滤：仅在 TTS 实际可能在出声的态（presenting.narrating）下检查。
+    // transcript 与"当前页讲稿"重叠率过高 → 判定为扬声器回授到麦克风的回声，丢弃不打断。
+    const ttsLikelyPlaying =
+      s.fsm.top === 'presenting' && s.fsm.presentingSub === 'narrating';
+    if (ttsLikelyPlaying) {
+      const currentScript = s.presentation.pages.find((p) => p.pageNo === s.fsm.currentPage)?.script ?? '';
+      if (currentScript) {
+        const echo = checkEchoOverlap(transcript, currentScript);
+        if (echo.isEcho) {
+          void appendSessionAudit(sid, {
+            type: 'voice_echo_dropped',
+            transcript: transcript.slice(0, 200),
+            ratio: Number(echo.ratio.toFixed(2)),
+            threshold: echo.threshold,
+          });
           return {
-            kind: 'rejected',
-            message: a.error,
+            kind: 'ignored',
             transcript,
-            code: a.code,
+            reason: `疑似 TTS 回授（与讲稿重叠 ${(echo.ratio * 100).toFixed(0)}%）`,
+            classifierFallback: true,
           };
         }
-        return { kind: 'answered', transcript, ask: a };
       }
-      return {
-        kind: 'suggest_ask',
-        transcript,
-        text: it.text,
-        message: it.message,
-      };
     }
-    return {
-      kind: 'suggest_ask',
+
+    const askable = s.fsm.top === 'presenting' || s.fsm.top === 'qa';
+
+    // ask_suggestion 与 noop（非命令）都走"LLM 意图分类"再决定是否打断
+    const cls = await classifyTranscriptIntent({
       transcript,
-      text: transcript,
-      message: it.reason,
+      currentPage: s.fsm.currentPage,
+      pages: s.presentation.pages,
+    });
+    void appendSessionAudit(sid, {
+      type: 'voice_intent_classified',
+      transcript: transcript.slice(0, 200),
+      intent: cls.intent,
+      reason: cls.reason,
+      classifierFallback: cls.fallbackUsed,
+    });
+
+    if (cls.intent === 'question') {
+      if (!askable) {
+        return {
+          kind: 'suggest_ask',
+          transcript,
+          text: transcript,
+          message: '当前状态不可问答，请在讲解或问答中提交。',
+        };
+      }
+      const askText =
+        it.kind === 'ask_suggestion' ? it.text : transcript;
+      const a = await sessionService.submitAsk(sid, {
+        question: askText,
+        currentPage: s.fsm.currentPage,
+      });
+      if ('error' in a) {
+        return {
+          kind: 'rejected',
+          message: a.error,
+          transcript,
+          code: a.code,
+        };
+      }
+      return { kind: 'answered', transcript, ask: a };
+    }
+
+    // irrelevant：不打断 TTS，仅留痕
+    return {
+      kind: 'ignored',
+      transcript,
+      reason: cls.reason,
+      classifierFallback: cls.fallbackUsed,
     };
   },
 

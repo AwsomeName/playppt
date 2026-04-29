@@ -1,5 +1,23 @@
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 
+export interface PresentationListItem {
+  presentationId: string;
+  title: string;
+  totalPages: number;
+  deckFile?: string;
+}
+
+export interface PresentationsListResponse {
+  editorEnabled: boolean;
+  presentations: PresentationListItem[];
+}
+
+export interface UploadResponse {
+  presentationId: string;
+  title: string;
+  totalPages: number;
+}
+
 export interface StartSessionResponse {
   sessionId: string;
   totalPages: number;
@@ -30,8 +48,6 @@ export type SessionPayload = {
   presentationId: string;
   deckFile?: string;
   assetBaseUrl?: string;
-  slideImagesBaseUrl?: string;
-  slideImages?: Array<{ pageNo: number; file: string; width?: number; height?: number }>;
   slideImagesBaseUrl?: string;
   slideImages?: Array<{ pageNo: number; file: string; width?: number; height?: number }>;
   presentationEditorEnabled?: boolean;
@@ -155,6 +171,18 @@ export async function apiGetSession(id: string): Promise<SessionPayload> {
   return (await r.json()) as SessionPayload;
 }
 
+/** 取得当前页讲稿按句切分后的列表，用于前端做"逐句播放 + 句间停顿"的节奏控制。 */
+export async function apiGetTtsSentences(
+  sessionId: string,
+): Promise<{ page: number; sentences: string[] }> {
+  const r = await fetch(`/api/session/${encodeURIComponent(sessionId)}/tts-audio/sentences`);
+  if (!r.ok) {
+    const t = (await r.json().catch(() => ({}))) as { error?: string };
+    throw new Error(t.error ?? r.statusText);
+  }
+  return (await r.json()) as { page: number; sentences: string[] };
+}
+
 export async function apiNarrationEvent(
   sessionId: string,
   event: 'TTS_DONE' | 'TTS_FAILED' | 'COUNTDOWN_END',
@@ -221,7 +249,13 @@ export type VoicePipelineResult =
       };
     }
   | { kind: 'suggest_ask'; transcript: string; text: string; message: string }
-  | { kind: 'rejected'; transcript: string; message: string; code?: string };
+  | { kind: 'rejected'; transcript: string; message: string; code?: string }
+  | {
+      kind: 'ignored';
+      transcript: string;
+      reason: string;
+      classifierFallback: boolean;
+    };
 
 export type AskResponse = {
   answerText: string;
@@ -275,6 +309,29 @@ export async function apiPostVoiceTextPipeline(sessionId: string, text: string):
   return data as VoicePipelineResult;
 }
 
+export async function apiListPresentations(): Promise<PresentationsListResponse> {
+  const r = await fetch('/api/presentations');
+  if (!r.ok) throw new Error(r.statusText);
+  return (await r.json()) as PresentationsListResponse;
+}
+
+export async function apiUploadPresentation(file: File, title?: string): Promise<UploadResponse> {
+  const fd = new FormData();
+  fd.set('deck', file);
+  if (title) fd.set('title', title);
+  const r = await fetch('/api/presentations/upload', { method: 'POST', body: fd });
+  const data = (await r.json().catch(() => ({}))) as UploadResponse & { error?: string };
+  if (!r.ok) throw new Error(data.error ?? r.statusText);
+  return data as UploadResponse;
+}
+
+export async function apiDeletePresentation(presentationId: string): Promise<{ ok: boolean }> {
+  const r = await fetch(`/api/presentations/${encodeURIComponent(presentationId)}`, { method: 'DELETE' });
+  const data = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!r.ok) throw new Error(data.error ?? r.statusText);
+  return { ok: Boolean(data.ok) };
+}
+
 export type UtteranceOk = { transcript: string; result: VoicePipelineResult };
 
 export async function apiPostVoiceUtterance(sessionId: string, blob: Blob, filename = 'rec.webm'): Promise<UtteranceOk> {
@@ -287,4 +344,36 @@ export async function apiPostVoiceUtterance(sessionId: string, blob: Blob, filen
     throw new Error((data as { error?: string }).error ?? r.statusText);
   }
   return { transcript: data.transcript, result: data.result as VoicePipelineResult };
+}
+
+/**
+ * 一键打断提问：暂停 -> 提问 -> 恢复
+ * 用于在播报过程中快速提问的场景
+ */
+export async function apiPostInterruptAsk(
+  sessionId: string,
+  body: { question: string; currentPage: number },
+): Promise<AskResponse & { paused: boolean; resumed: boolean }> {
+  // 1. 先尝试暂停
+  let paused = false;
+  try {
+    const pauseResult = await apiPostControl({ sessionId, action: 'pause' });
+    paused = pauseResult.ok;
+  } catch {
+    // 暂停失败继续执行提问
+  }
+
+  // 2. 提交问题
+  const askResult = await apiPostAsk(sessionId, body);
+
+  // 3. 尝试恢复
+  let resumed = false;
+  try {
+    const resumeResult = await apiPostControl({ sessionId, action: 'resume' });
+    resumed = resumeResult.ok;
+  } catch {
+    // 恢复失败不影响问答结果
+  }
+
+  return { ...askResult, paused, resumed };
 }

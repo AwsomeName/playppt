@@ -28,7 +28,13 @@ function loadLocalProperties(): Record<string, string> {
 const localProps = loadLocalProperties();
 
 function env(name: string, fallback = ''): string {
-  return (process.env[name] ?? localProps[name] ?? fallback).trim();
+  // 注意：dotenv 把 ".env" 中的空字符串赋值（如 VOLC_APP_ID=）写入 process.env 后是 ''，
+  // 直接用 ?? 短路无法回退到 local.properties。这里只把"非空字符串"视为有效来源。
+  const fromEnv = process.env[name];
+  if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) return fromEnv.trim();
+  const fromLocal = localProps[name];
+  if (typeof fromLocal === 'string' && fromLocal.trim().length > 0) return fromLocal.trim();
+  return fallback.trim();
 }
 
 function boolEnv(name: string, defaultValue: boolean): boolean {

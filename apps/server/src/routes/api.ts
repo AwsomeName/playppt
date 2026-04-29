@@ -1,11 +1,13 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 
 import { getTtsBackendHint, streamSpeech, transcribeAudio } from '../ai/provider.js';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 import { listPresentations } from '../demo-loader.js';
 import {
   readPresentationKb,
@@ -19,6 +21,9 @@ import {
   sessionService,
   type ControlRequest,
 } from '../services/session-service.js';
+import { ensureSlidesConverted } from '../services/pptx-converter.js';
+import { parsePptxPages } from '../services/pptx-parser.js';
+import { splitSentences } from '../services/sentence-split.js';
 import type { AdvanceMode } from '../types/session.js';
 import type { PresentationKb, PresentationScripts } from '../types/presentation.js';
 
@@ -141,6 +146,99 @@ apiRouter.get('/presentations/:id/slides/:file', (req: Request, res: Response) =
     return;
   }
   res.sendFile(p);
+});
+
+const deckUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
+
+apiRouter.post('/presentations/upload', deckUpload.single('deck'), async (req: Request, res: Response) => {
+  const f = req.file;
+  if (!f?.buffer?.byteLength) {
+    res.status(400).json({ error: '请提供字段名为 deck 的 pptx 文件' });
+    return;
+  }
+  if (!f.originalname.endsWith('.pptx')) {
+    res.status(400).json({ error: '仅支持 .pptx 文件' });
+    return;
+  }
+
+  const id = randomUUID().slice(0, 8);
+  const title = typeof (req.body as { title?: string }).title === 'string'
+    ? (req.body as { title: string }).title
+    : f.originalname.replace(/\.pptx$/i, '');
+  const presDir = join(config.presentationsDir, id);
+
+  try {
+    mkdirSync(presDir, { recursive: true });
+    const pptxPath = join(presDir, 'deck.pptx');
+    writeFileSync(pptxPath, f.buffer);
+
+    // Parse pages from pptx
+    let pages;
+    try {
+      const parsed = parsePptxPages(pptxPath);
+      pages = parsed.pages;
+    } catch {
+      // If parsing fails, create a generic single-page manifest
+      pages = [{ pageNo: 1, title: title, content: '幻灯片内容' }];
+    }
+
+    const totalPages = pages.length;
+
+    // Write manifest.json
+    writeFileSync(join(presDir, 'manifest.json'), JSON.stringify({
+      presentationId: id,
+      title,
+      deckFile: 'deck.pptx',
+      totalPages,
+      pages,
+    }, null, 2));
+
+    // Write scripts.json (template scripts based on title + content)
+    writeFileSync(join(presDir, 'scripts.json'), JSON.stringify({
+      scripts: pages.map((p) => ({
+        pageNo: p.pageNo,
+        script: `${p.title}：${p.content}`,
+      })),
+    }, null, 2));
+
+    // Convert slides to images (async, don't block response)
+    const slidesDir = join(presDir, 'slides');
+    void ensureSlidesConverted(pptxPath, slidesDir, totalPages)
+      .then((r) => {
+        if (r.ok) invalidatePresentationCache(id);
+      })
+      .catch(() => { /* already logged */ });
+
+    invalidatePresentationCache(id);
+    res.json({ presentationId: id, title, totalPages });
+  } catch (e) {
+    // Cleanup on failure
+    try { rmSync(presDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRouter.delete('/presentations/:id', requirePresentationEditor, (req: Request, res: Response) => {
+  const id = safePresentationId(String(req.params.id ?? ''));
+  if (!id) {
+    res.status(400).json({ error: 'invalid presentation id' });
+    return;
+  }
+  const presDir = join(config.presentationsDir, id);
+  if (!existsSync(presDir)) {
+    res.status(404).json({ error: 'presentation not found' });
+    return;
+  }
+  try {
+    rmSync(presDir, { recursive: true, force: true });
+    invalidatePresentationCache(id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
 });
 
 apiRouter.post('/session/start', (req: Request, res: Response) => {
@@ -271,6 +369,25 @@ apiRouter.patch('/session/:id', (req: Request, res: Response) => {
   res.json(r);
 });
 
+/**
+ * 返回当前页讲稿按句切分后的列表，供前端做"逐句播放 + 句间停顿"的节奏控制。
+ * 切分规则在 services/sentence-split.ts，对短句会做合并。
+ */
+apiRouter.get('/session/:id/tts-audio/sentences', (req: Request, res: Response) => {
+  const id = typeof req.params.id === 'string' ? req.params.id : String(req.params.id);
+  const s = sessionService.getSession(id);
+  if (!s) {
+    res.status(404).json({ error: '会话不存在' });
+    return;
+  }
+  if (s.currentPage < 1 || s.currentPage > s.totalPages) {
+    res.status(400).json({ error: '无效 currentPage' });
+    return;
+  }
+  const script = s.pagesData[s.currentPage - 1]?.script ?? '';
+  res.json({ page: s.currentPage, sentences: splitSentences(script) });
+});
+
 apiRouter.get('/session/:id/tts-audio', async (req: Request, res: Response) => {
   const id = typeof req.params.id === 'string' ? req.params.id : String(req.params.id);
   const s = sessionService.getSession(id);
@@ -292,15 +409,35 @@ apiRouter.get('/session/:id/tts-audio', async (req: Request, res: Response) => {
     res.status(400).json({ error: '无讲解词' });
     return;
   }
+  // 可选 ?sentence=N：只合成第 N 句（0-based），与 /tts-audio/sentences 配合实现逐句节奏播放。
+  let textToSynth = script;
+  const sentenceParam = req.query.sentence;
+  if (sentenceParam != null && sentenceParam !== '') {
+    const idx = Number(sentenceParam);
+    const sentences = splitSentences(script);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= sentences.length) {
+      res.status(400).json({ error: `无效的 sentence 索引（共 ${sentences.length} 句）` });
+      return;
+    }
+    textToSynth = sentences[idx]!;
+  }
+  // 可选 ?speaker=xxx：覆盖默认 Volc speaker，方便前端做"音色选择"。
+  // 安全：限制长度+字符集，避免请求里塞奇怪内容。
+  let speakerOverride: string | undefined;
+  const speakerRaw = req.query.speaker;
+  if (typeof speakerRaw === 'string' && speakerRaw && /^[A-Za-z0-9_]{3,128}$/.test(speakerRaw)) {
+    speakerOverride = speakerRaw;
+  }
   try {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Transfer-Encoding', 'chunked');
     const out = await streamSpeech({
-      text: script,
+      text: textToSynth,
       writeChunk: (chunk) => {
         if (!res.writableEnded) res.write(chunk);
       },
+      speaker: speakerOverride,
     });
     sessionService.recordServerTtsSuccess(id);
     void appendSessionAudit(id, { type: 'tts_synthesis_success', provider: out.provider });
@@ -309,10 +446,17 @@ apiRouter.get('/session/:id/tts-audio', async (req: Request, res: Response) => {
     const msg = e instanceof Error ? e.message : String(e);
     void appendSessionAudit(id, { type: 'tts_synthesis_error', message: msg.slice(0, 500) });
     sessionService.recordServerTtsFailure(id, msg);
-    res.status(502).json({
-      useClientSpeech: true,
-      error: msg,
-    });
+    // 关键：streamSpeech 中途失败时 writeChunk 可能已写出部分字节，res.headersSent 为 true。
+    // 这时再调 res.status(502).json(...) 会抛 ERR_HTTP_HEADERS_SENT 把整个 Node 进程干掉
+    // （Express 默认错误处理对 sync throw + 部分写后的同步抛会 propagate 到 'error' 事件链）。
+    if (res.headersSent) {
+      try { res.end(); } catch { /* ignore */ }
+    } else {
+      res.status(502).json({
+        useClientSpeech: true,
+        error: msg,
+      });
+    }
   }
 });
 
@@ -419,6 +563,8 @@ apiRouter.post(
       return;
     }
     let transcript: string;
+    let asrProvider: string | undefined;
+    let asrFallback = false;
     try {
       const tr = await transcribeAudio({
         buffer: f.buffer,
@@ -426,6 +572,8 @@ apiRouter.post(
         mime: f.mimetype || 'audio/webm',
       });
       transcript = tr.text;
+      asrProvider = tr.provider;
+      asrFallback = !!tr.fallbackUsed;
       void appendSessionAudit(sessionId, {
         type: 'asr_transcribed',
         provider: tr.provider,
@@ -433,10 +581,38 @@ apiRouter.post(
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'ASR 失败';
+      logger.warn('voice/utterance: asr failed', {
+        sessionId,
+        audioBytes: f.buffer.byteLength,
+        mime: f.mimetype,
+        err: msg,
+      });
       sessionService.notifyRecoverableFailure(sessionId, { source: 'asr', messagePreview: msg });
       res.status(502).json({
         error: msg,
         hint: 'ASR provider 不可用，请检查火山云/OpenAI 配置或切到 AI_PROVIDER=mock。',
+      });
+      return;
+    }
+    logger.info('voice/utterance: asr ok', {
+      sessionId,
+      audioBytes: f.buffer.byteLength,
+      mime: f.mimetype,
+      provider: asrProvider,
+      fallback: asrFallback,
+      transcriptLen: transcript.length,
+      transcriptPreview: transcript.slice(0, 60),
+    });
+    if (!transcript.trim()) {
+      // 空转写：避免被解析成意图，直接返回明确"未识别"
+      res.json({
+        transcript,
+        result: {
+          kind: 'rejected',
+          transcript,
+          message: '未识别到有效语音内容，请靠近麦克风重试或检查 ASR 配置。',
+          code: 'EMPTY_TRANSCRIPT',
+        },
       });
       return;
     }

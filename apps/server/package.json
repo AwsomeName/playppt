@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "gen-scripts": "tsx src/scripts/gen-scripts.ts",
-    "convert-pptx": "tsx src/scripts/convert-pptx.ts"
+    "convert-pptx": "tsx src/scripts/convert-pptx.ts",
+    "probe-asr": "tsx src/scripts/test-volc-asr.ts",
+    "probe-tts": "tsx src/scripts/test-volc-tts.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

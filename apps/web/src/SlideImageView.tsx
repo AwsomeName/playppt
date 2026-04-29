@@ -1,17 +1,31 @@
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 
 interface SlideImageViewProps {
   url: string;
   title: string;
   fallbackContent: string;
+  fullscreen?: boolean;
 }
 
-export function SlideImageView({ url, title, fallbackContent }: SlideImageViewProps) {
+export function SlideImageView({ url, title, fallbackContent, fullscreen = false }: SlideImageViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  const containerStyle: CSSProperties = fullscreen
+    ? { position: 'absolute', width: '100%', height: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+    : { position: 'relative', minHeight: 200 };
+
+  const imgStyle: CSSProperties = fullscreen
+    ? { maxWidth: '100%', maxHeight: '100vh', objectFit: 'contain' as const, display: loading ? 'none' : 'block' }
+    : { width: '100%', maxHeight: 480, objectFit: 'contain' as const, borderRadius: 8, display: loading ? 'none' : 'block' };
+
+  const fallbackStyle: CSSProperties = fullscreen
+    ? { padding: '2rem', textAlign: 'center' as const, color: '#cbd5e1', fontSize: 17, lineHeight: 1.5 }
+    : {};
+
   return (
-    <div style={{ position: 'relative', minHeight: 200 }}>
+    <div style={containerStyle}>
       {loading && !error && (
         <div
           style={{
@@ -28,17 +42,9 @@ export function SlideImageView({ url, title, fallbackContent }: SlideImageViewPr
         </div>
       )}
       {error && (
-        <div>
+        <div style={fallbackStyle}>
           <h2 style={{ margin: '0 0 0.5rem', fontSize: 26, lineHeight: 1.2 }}>{title}</h2>
-          <p
-            style={{
-              margin: 0,
-              fontSize: 17,
-              lineHeight: 1.5,
-              color: '#cbd5e1',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
+          <p style={{ margin: 0, fontSize: 17, lineHeight: 1.5, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>
             {fallbackContent}
           </p>
           <p style={{ color: '#f87171', fontSize: 13, marginTop: '0.5rem' }}>
@@ -55,13 +61,7 @@ export function SlideImageView({ url, title, fallbackContent }: SlideImageViewPr
             setLoading(false);
             setError(true);
           }}
-          style={{
-            width: '100%',
-            maxHeight: 480,
-            objectFit: 'contain',
-            borderRadius: 8,
-            display: loading ? 'none' : 'block',
-          }}
+          style={imgStyle}
         />
       )}
     </div>

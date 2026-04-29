@@ -63,7 +63,8 @@ export async function transcribeAudio(input: {
         };
       }
       if (p === 'mock') {
-        return { text: '下一页', provider: 'mock', fallbackUsed: config.aiProvider !== 'mock' };
+        // 不返回任何"看似命令"的文本，避免误导 FSM；空 transcript 由上层处理为"未识别"。
+        return { text: '', provider: 'mock', fallbackUsed: config.aiProvider !== 'mock' };
       }
     } catch (e) {
       firstError ??= e;
@@ -75,12 +76,14 @@ export async function transcribeAudio(input: {
 export async function streamSpeech(input: {
   text: string;
   writeChunk: (chunk: Buffer) => void | Promise<void>;
+  /** 可选 Volc TTS speaker（OpenAI fallback 暂不支持，会被忽略）。 */
+  speaker?: string;
 }): Promise<TtsStreamResult> {
   let firstError: unknown;
   for (const p of providerOrder()) {
     try {
       if (p === 'volc' && hasVolcSpeechConfig()) {
-        await streamVolcSpeech(input.text, input.writeChunk);
+        await streamVolcSpeech(input.text, input.writeChunk, input.speaker);
         return { provider: 'volc' };
       }
       if (p === 'openai' && hasOpenAiSpeechConfig()) {

@@ -44,7 +44,6 @@ function summarizePipeline(r: VoicePipelineResult): string {
 function speakClientAnswer(text: string) {
   try {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
     window.speechSynthesis.speak(u);

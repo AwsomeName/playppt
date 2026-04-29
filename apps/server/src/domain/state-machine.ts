@@ -177,7 +177,12 @@ export function transition(
         return { ok: false, same: s, error: '仅 auto_advance 可触发倒计时结束。', actions: [] };
       }
       if (s.currentPage >= totalPages) {
-        return { ok: false, same: s, error: '已在最后一页。', actions: [] };
+        return {
+          ok: true,
+          next: { top: 'end', presentingSub: null, currentPage: s.currentPage },
+          actions: ['endSession'],
+          notice: '最后一页讲解完成，会话自动结束。',
+        };
       }
       return {
         ok: true,
