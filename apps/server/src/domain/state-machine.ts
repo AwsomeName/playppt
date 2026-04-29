@@ -23,7 +23,7 @@ export function transition(
     return { ok: false, same: s, error: '会话已结束，无法接受控制。', actions: [] };
   }
 
-  const { totalPages, advanceMode, restorePresentingSub } = options;
+  const { totalPages, advanceMode, restorePresentingSub, hasOpening, hasClosing } = options;
 
   const clamp = (n: number) => Math.min(Math.max(1, n), Math.max(1, totalPages));
 
@@ -42,6 +42,17 @@ export function transition(
     case 'START': {
       if (s.top !== 'idle') {
         return { ok: false, same: s, error: '仅 idle 可开始。', actions: [] };
+      }
+      if (hasOpening) {
+        return {
+          ok: true,
+          next: {
+            top: 'presenting',
+            presentingSub: 'opening_narrating',
+            currentPage: 0,
+          },
+          actions: ['enterOpening'],
+        };
       }
       return {
         ok: true,
@@ -108,6 +119,14 @@ export function transition(
         return { ok: false, same: s, error: '自动翻页倒计时中请等待完成或使用 pause。', actions: [] };
       }
       if (s.currentPage >= totalPages) {
+        if (s.top === 'presenting' && (s.presentingSub === 'waiting_confirm' || s.presentingSub === 'narrating') && hasClosing) {
+          return {
+            ok: true,
+            next: { ...s, presentingSub: 'closing_narrating' },
+            actions: ['enterClosing'],
+            notice: '最后一页讲解完成，进入收尾。',
+          };
+        }
         return { ok: true, next: s, actions: [], notice: '已在最后一页。' };
       }
       const newPage = s.currentPage + 1;
@@ -152,7 +171,25 @@ export function transition(
       };
     }
     case 'TTS_DONE': {
-      if (s.top !== 'presenting' || s.presentingSub !== 'narrating') {
+      if (s.top !== 'presenting') {
+        return { ok: false, same: s, error: '仅讲解态可接收 TTS 完成。', actions: [] };
+      }
+      if (s.presentingSub === 'opening_narrating') {
+        return {
+          ok: true,
+          next: { top: 'presenting', presentingSub: 'narrating', currentPage: 1 },
+          actions: ['enterPage', 'openingDone'],
+        };
+      }
+      if (s.presentingSub === 'closing_narrating') {
+        return {
+          ok: true,
+          next: { top: 'end', presentingSub: null, currentPage: s.currentPage },
+          actions: ['endSession'],
+          notice: '收尾播报完成，会话结束。',
+        };
+      }
+      if (s.presentingSub !== 'narrating') {
         return { ok: false, same: s, error: '仅讲解·播报中可接收 TTS 完成。', actions: [] };
       }
       const sub: PresentingSub = advanceMode === 'auto' ? 'auto_advance' : 'waiting_confirm';
@@ -163,7 +200,27 @@ export function transition(
       };
     }
     case 'TTS_FAILED': {
-      if (s.top !== 'presenting' || s.presentingSub !== 'narrating') {
+      if (s.top !== 'presenting') {
+        return { ok: false, same: s, error: '仅讲解态可报告 TTS 失败。', actions: [] };
+      }
+      if (s.presentingSub === 'opening_narrating') {
+        // 开场白 TTS 失败 → 直接跳到第1页讲解
+        return {
+          ok: true,
+          next: { top: 'presenting', presentingSub: 'narrating', currentPage: 1 },
+          actions: ['enterPage', 'openingFailed'],
+        };
+      }
+      if (s.presentingSub === 'closing_narrating') {
+        // 收尾 TTS 失败 → 直接结束
+        return {
+          ok: true,
+          next: { top: 'end', presentingSub: null, currentPage: s.currentPage },
+          actions: ['endSession'],
+          notice: '收尾播报失败，会话结束。',
+        };
+      }
+      if (s.presentingSub !== 'narrating') {
         return { ok: false, same: s, error: '仅讲解·播报中可报告 TTS 失败。', actions: [] };
       }
       return {
@@ -177,6 +234,14 @@ export function transition(
         return { ok: false, same: s, error: '仅 auto_advance 可触发倒计时结束。', actions: [] };
       }
       if (s.currentPage >= totalPages) {
+        if (hasClosing) {
+          return {
+            ok: true,
+            next: { ...s, presentingSub: 'closing_narrating' },
+            actions: ['enterClosing'],
+            notice: '最后一页讲解完成，进入收尾。',
+          };
+        }
         return {
           ok: true,
           next: { top: 'end', presentingSub: null, currentPage: s.currentPage },

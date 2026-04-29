@@ -1,5 +1,5 @@
 export type TopState = 'idle' | 'presenting' | 'paused' | 'qa' | 'interrupted' | 'end';
-export type PresentingSub = 'narrating' | 'waiting_confirm' | 'auto_advance';
+export type PresentingSub = 'narrating' | 'waiting_confirm' | 'auto_advance' | 'opening_narrating' | 'closing_narrating';
 export type AdvanceMode = 'manual' | 'auto';
 export type PageStatus =
   | 'unvisited'

@@ -11,6 +11,7 @@ import { logger } from '../logger.js';
 import { listPresentations } from '../demo-loader.js';
 import {
   readPresentationKb,
+  readPresentationManifest,
   readPresentationScripts,
   writePresentationKb,
   writePresentationScripts,
@@ -47,6 +48,108 @@ function safePresentationId(raw: string): string | null {
   return raw;
 }
 
+/** Strip Markdown formatting from text so TTS won't read out symbols like **, ~~, etc. */
+function stripMarkdown(text: string): string {
+  let s = text;
+  // 图片 ![alt](url) → 移除整段
+  s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+  // 链接 [text](url) → 只保留文字
+  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+  // 删除线 ~~text~~
+  s = s.replace(/~~([^~]+)~~/g, '$1');
+  // 粗体 **text** 或 __text__
+  s = s.replace(/\*\*([^*]+)\*\*/g, '$1');
+  s = s.replace(/__([^_]+)__/g, '$1');
+  // 斜体 *text* 或 _text_（注意不要误杀列表前缀的 *，它们在行首且后面有空格）
+  s = s.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '$1');
+  s = s.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '$1');
+  // 行首列表标记：- item / * item / + item → 只保留内容
+  s = s.replace(/^[\s]*[-*+]\s+/gm, '');
+  // 有序列表：1. item → 只保留内容
+  s = s.replace(/^[\s]*\d+\.\s+/gm, '');
+  // 行首标题标记 # → 去掉
+  s = s.replace(/^#+\s+/gm, '');
+  // 引用 > （行首） → 去掉
+  s = s.replace(/^>\s+/gm, '');
+  // 代码块 ```lang ... ``` → 去掉标记，保留内容
+  s = s.replace(/```[^\n]*\n?/g, '');
+  s = s.replace(/```/g, '');
+  // 行内代码 `code` → 去掉反引号
+  s = s.replace(/`([^`]+)`/g, '$1');
+  // HTML 标签 → 去掉
+  s = s.replace(/<[^>]+>/g, '');
+  // 多余空行合并
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
+
+function parseScriptContent(content: string, totalPages: number): PresentationScripts {
+  // 去掉文件头部元数据（blockquote > 行、# 一级标题行、斜体元数据行）
+  const cleanedLines = content.split('\n').filter(
+    (line) => !/^>\s/.test(line) && !/^#\s/.test(line) && !/^\*.*\*$/.test(line.trim()),
+  );
+  const cleaned = cleanedLines.join('\n').trim();
+
+  // 按 ## 标题或 --- 分隔线切分章节，同时记录标题用于识别开场/收尾/附录
+  const OPENING_RE = /开场|开篇|序幕/;
+  const CLOSING_RE = /收尾|结尾|结束|结语|总结|致谢|感谢/;
+  const APPENDIX_RE = /附[：:]|附录/;
+  const sections: { title: string; body: string }[] = [];
+  let curTitle = '';
+  let curBody = '';
+  for (const line of cleanedLines) {
+    if (/^##\s/.test(line)) {
+      if (curBody.trim()) sections.push({ title: curTitle, body: curBody.trim() });
+      curTitle = line.replace(/^##\s+/, '').trim();
+      curBody = '';
+    } else if (/^---/.test(line)) {
+      if (curBody.trim()) sections.push({ title: curTitle, body: curBody.trim() });
+      curTitle = '';
+      curBody = '';
+    } else {
+      curBody += line + '\n';
+    }
+  }
+  if (curBody.trim()) sections.push({ title: curTitle, body: curBody.trim() });
+
+  // 如果没有 ## 或 --- 分隔，按连续空行分割（无标题）
+  if (sections.length <= 1) {
+    const parts = cleaned.split(/\n{2,}/).filter((p) => p.trim());
+    sections.length = 0;
+    for (const p of parts) sections.push({ title: '', body: p.trim() });
+  }
+  if (sections.length === 0) sections.push({ title: '', body: cleaned });
+
+  // 提取开场白和收尾；附录类章节直接丢弃（不分配到页面）
+  let opening: string | undefined;
+  let closing: string | undefined;
+  const pageSections: string[] = [];
+  for (const sec of sections) {
+    if (!opening && OPENING_RE.test(sec.title)) {
+      opening = sec.body;
+    } else if (!closing && CLOSING_RE.test(sec.title)) {
+      closing = sec.body;
+    } else if (APPENDIX_RE.test(sec.title)) {
+      // 附录（时长控制建议等）不分配到页面
+    } else {
+      pageSections.push(sec.body);
+    }
+  }
+
+  // 均匀分配章节到每页：不足时循环使用已有章节
+  const scripts: PresentationScripts['scripts'] = [];
+  for (let i = 0; i < totalPages; i++) {
+    const idx = pageSections.length >= totalPages
+      ? i
+      : Math.floor(i * pageSections.length / totalPages);
+    const script = stripMarkdown(pageSections[idx] || pageSections[pageSections.length - 1] || `第${i + 1}页`);
+    scripts.push({ pageNo: i + 1, script });
+  }
+  return { opening: opening ? stripMarkdown(opening) : undefined, closing: closing ? stripMarkdown(closing) : undefined, scripts };
+}
+
+const scriptUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+
 apiRouter.get('/presentations', (_req: Request, res: Response) => {
   res.json({
     editorEnabled: config.presentationEditorEnabled,
@@ -74,12 +177,52 @@ apiRouter.put('/presentations/:id/scripts', requirePresentationEditor, (req: Req
     return;
   }
   const body = req.body as PresentationScripts;
+  const stripped: PresentationScripts = {
+    opening: body.opening ? stripMarkdown(body.opening) : undefined,
+    closing: body.closing ? stripMarkdown(body.closing) : undefined,
+    scripts: body.scripts.map((s) => ({ pageNo: s.pageNo, script: stripMarkdown(s.script) })),
+  };
   try {
-    writePresentationScripts(id, body);
+    writePresentationScripts(id, stripped);
     invalidatePresentationCache(id);
     res.json({
       ok: true,
       hint: '已更新磁盘上的 scripts.json；已建会话仍使用旧稿，请新建会话后生效。',
+    });
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRouter.post('/presentations/:id/scripts/upload', requirePresentationEditor, scriptUpload.single('script'), (req: Request, res: Response) => {
+  const id = safePresentationId(String(req.params.id ?? ''));
+  if (!id) {
+    res.status(400).json({ error: 'invalid presentation id' });
+    return;
+  }
+  const f = req.file;
+  if (!f) {
+    res.status(400).json({ error: '未上传文件' });
+    return;
+  }
+
+  const ext = (f.originalname || '').toLowerCase();
+  if (!ext.endsWith('.md') && !ext.endsWith('.txt') && !ext.endsWith('.markdown')) {
+    res.status(400).json({ error: '仅支持 .md / .txt / .markdown 文件' });
+    return;
+  }
+
+  try {
+    const manifest = readPresentationManifest(id);
+    const content = f.buffer.toString('utf-8');
+    const parsed = parseScriptContent(content, manifest.totalPages);
+    writePresentationScripts(id, parsed);
+    invalidatePresentationCache(id);
+    res.json({
+      ok: true,
+      totalPages: manifest.totalPages,
+      sections: parsed.scripts.length,
+      hint: '已将解说词分配到各页；已建会话仍使用旧稿，请新建会话后生效。',
     });
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
@@ -380,6 +523,17 @@ apiRouter.get('/session/:id/tts-audio/sentences', (req: Request, res: Response) 
     res.status(404).json({ error: '会话不存在' });
     return;
   }
+  // opening/closing 子态使用专属文本，currentPage 可为 0（opening 时）。
+  if (s.topState === 'presenting' && s.subState === 'opening_narrating') {
+    const text = s.opening ?? '';
+    res.json({ page: 0, kind: 'opening', sentences: splitSentences(text) });
+    return;
+  }
+  if (s.topState === 'presenting' && s.subState === 'closing_narrating') {
+    const text = s.closing ?? '';
+    res.json({ page: s.currentPage, kind: 'closing', sentences: splitSentences(text) });
+    return;
+  }
   if (s.currentPage < 1 || s.currentPage > s.totalPages) {
     res.status(400).json({ error: '无效 currentPage' });
     return;
@@ -400,11 +554,19 @@ apiRouter.get('/session/:id/tts-audio', async (req: Request, res: Response) => {
     res.status(503).json({ useClientSpeech: true, message: '未配置可用服务端 TTS，请使用浏览器语音。' });
     return;
   }
-  if (s.currentPage < 1 || s.currentPage > s.totalPages) {
-    res.status(400).json({ error: '无效 currentPage' });
-    return;
+  // opening/closing 子态使用专属文本，绕过 page-script 取数。
+  let script: string | undefined;
+  if (s.topState === 'presenting' && s.subState === 'opening_narrating') {
+    script = s.opening;
+  } else if (s.topState === 'presenting' && s.subState === 'closing_narrating') {
+    script = s.closing;
+  } else {
+    if (s.currentPage < 1 || s.currentPage > s.totalPages) {
+      res.status(400).json({ error: '无效 currentPage' });
+      return;
+    }
+    script = s.pagesData[s.currentPage - 1]?.script;
   }
-  const script = s.pagesData[s.currentPage - 1]?.script;
   if (!script) {
     res.status(400).json({ error: '无讲解词' });
     return;

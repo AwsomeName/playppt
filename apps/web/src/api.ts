@@ -54,6 +54,10 @@ export type SessionPayload = {
   autoCountdownSec?: number;
   ttsBackend?: 'client' | 'volc' | 'openai' | 'disabled';
   narrationTtsEnabled?: boolean;
+  /** 开场白（START 后、第1页之前播报） */
+  opening?: string;
+  /** 收尾（最后页之后播报） */
+  closing?: string;
   pages: Array<{
     pageNo: number;
     status: string;
@@ -70,6 +74,8 @@ export type SessionPayload = {
 };
 
 export type PresentationScriptsPayload = {
+  opening?: string;
+  closing?: string;
   scripts: Array<{ pageNo: number; script: string }>;
 };
 
@@ -323,6 +329,22 @@ export async function apiUploadPresentation(file: File, title?: string): Promise
   const data = (await r.json().catch(() => ({}))) as UploadResponse & { error?: string };
   if (!r.ok) throw new Error(data.error ?? r.statusText);
   return data as UploadResponse;
+}
+
+export interface ScriptUploadResponse {
+  ok: boolean;
+  totalPages: number;
+  sections: number;
+  hint: string;
+}
+
+export async function apiUploadScriptFile(presentationId: string, file: File): Promise<ScriptUploadResponse> {
+  const fd = new FormData();
+  fd.set('script', file);
+  const r = await fetch(`/api/presentations/${encodeURIComponent(presentationId)}/scripts/upload`, { method: 'POST', body: fd });
+  const data = (await r.json().catch(() => ({}))) as ScriptUploadResponse & { error?: string };
+  if (!r.ok) throw new Error(data.error ?? r.statusText);
+  return data as ScriptUploadResponse;
 }
 
 export async function apiDeletePresentation(presentationId: string): Promise<{ ok: boolean }> {

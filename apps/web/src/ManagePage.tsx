@@ -10,6 +10,7 @@ import {
   apiPutPresentationScripts,
   apiGetPresentationKb,
   apiPutPresentationKb,
+  apiUploadScriptFile,
   type PresentationListItem,
   type PresentationScriptsPayload,
 } from './api.js';
@@ -45,9 +46,12 @@ export function ManagePage() {
   const [scripts, setScripts] = useState<PresentationScriptsPayload | null>(null);
   const [scriptDraft, setScriptDraft] = useState('');
   const [scriptPage, setScriptPage] = useState(1);
+  const [openingDraft, setOpeningDraft] = useState('');
+  const [closingDraft, setClosingDraft] = useState('');
   const [kbJson, setKbJson] = useState('{"chunks":[]}');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scriptFileInputRef = useRef<HTMLInputElement>(null);
 
   // 全局播放偏好（写到 localStorage；PlayPage 启动时读同一个 key）。
   const [ttsSpeaker, setTtsSpeaker] = useState<string>(() => readPersistedSpeaker());
@@ -88,6 +92,8 @@ export function ManagePage() {
     if (!scripts) return;
     const entry = scripts.scripts.find((s) => s.pageNo === scriptPage);
     setScriptDraft(entry?.script ?? '');
+    setOpeningDraft(scripts.opening ?? '');
+    setClosingDraft(scripts.closing ?? '');
   }, [scripts, scriptPage]);
 
   const handleUpload = async (file: File) => {
@@ -136,8 +142,8 @@ export function ManagePage() {
       s.pageNo === scriptPage ? { ...s, script: scriptDraft } : s,
     );
     try {
-      await apiPutPresentationScripts(selectedId, { scripts: updated });
-      setScripts({ scripts: updated });
+      await apiPutPresentationScripts(selectedId, { opening: openingDraft, closing: closingDraft, scripts: updated });
+      setScripts({ opening: openingDraft, closing: closingDraft, scripts: updated });
       setMsg('口播已保存');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -173,6 +179,35 @@ export function ManagePage() {
     } else {
       setErr('仅支持 .pptx 文件');
     }
+  };
+
+  const handleScriptFileUpload = async (file: File) => {
+    if (!selectedId) {
+      setErr('请先选择一个演示稿');
+      return;
+    }
+    const ext = file.name.toLowerCase();
+    if (!ext.endsWith('.md') && !ext.endsWith('.txt') && !ext.endsWith('.markdown')) {
+      setErr('仅支持 .md / .txt / .markdown 文件');
+      return;
+    }
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await apiUploadScriptFile(selectedId, file);
+      setMsg(`解说词已上传：${r.sections} 个章节分配到 ${r.totalPages} 页`);
+      // 重新加载 scripts
+      const updated = await apiGetPresentationScripts(selectedId);
+      setScripts(updated);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onScriptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) void handleScriptFileUpload(f);
+    e.target.value = '';
   };
 
   return (
@@ -337,6 +372,48 @@ export function ManagePage() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>口播词</span>
+                <button
+                  type="button"
+                  onClick={() => scriptFileInputRef.current?.click()}
+                  style={{
+                    marginLeft: 'auto',
+                    background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.25)',
+                    borderRadius: 4, padding: '0.2rem 0.5rem', color: '#86efac', cursor: 'pointer', fontSize: 12,
+                  }}
+                >
+                  上传解说词
+                </button>
+                <input
+                  ref={scriptFileInputRef}
+                  type="file"
+                  accept=".md,.txt,.markdown"
+                  onChange={onScriptFileChange}
+                  style={{ display: 'none' }}
+                />
+              </div>
+              <span style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, marginBottom: 6, display: 'block' }}>
+                支持 .md/.txt/.markdown 文件，按 ## 标题或 --- 分隔线自动分配；含「开场」「收尾」标题的段落自动识别为开场白和收尾
+              </span>
+
+              {/* Opening textarea */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: '#86efac', marginBottom: 4, fontWeight: 600 }}>开场白（播放前播报）</div>
+                <textarea
+                  value={openingDraft}
+                  onChange={(e) => setOpeningDraft(e.target.value)}
+                  rows={3}
+                  placeholder="无开场白时，直接从第1页讲解开始"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '0.6rem',
+                    borderRadius: 6, border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(0,0,0,0.2)', color: '#e8edf4',
+                    fontSize: 14, lineHeight: 1.5, resize: 'vertical' as const,
+                  }}
+                />
+              </div>
+
+              {/* Page scripts */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                 <span style={{ fontSize: 13, opacity: 0.7 }}>第</span>
                 <select
                   value={scriptPage}
@@ -364,6 +441,24 @@ export function ManagePage() {
                   fontSize: 14, lineHeight: 1.5, resize: 'vertical' as const,
                 }}
               />
+
+              {/* Closing textarea */}
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12, color: '#fca5a5', marginBottom: 4, fontWeight: 600 }}>收尾（最后页之后播报）</div>
+                <textarea
+                  value={closingDraft}
+                  onChange={(e) => setClosingDraft(e.target.value)}
+                  rows={3}
+                  placeholder="无收尾时，最后页播完后自动结束"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '0.6rem',
+                    borderRadius: 6, border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(0,0,0,0.2)', color: '#e8edf4',
+                    fontSize: 14, lineHeight: 1.5, resize: 'vertical' as const,
+                  }}
+                />
+              </div>
+
               <button
                 type="button"
                 onClick={() => void saveScript()}

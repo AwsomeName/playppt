@@ -1,0 +1,52 @@
+{
+  "scripts": [
+    {
+      "pageNo": 1,
+      "script": "封面：play-ppt · Web-PPT 讲解 Agent"
+    },
+    {
+      "pageNo": 2,
+      "script": "目标：在浏览器中播放演示文稿，并支持程序化翻页与讲解。\n                           2"
+    },
+    {
+      "pageNo": 3,
+      "script": "架构概览：前端 apps/web ，后端 apps/server ， npm workspace 管理。\n                                                  3"
+    },
+    {
+      "pageNo": 4,
+      "script": "状态机：讲解流程由确定性状态机驱动，避免多 Agent 自由协作作为主控。\n                                    4"
+    },
+    {
+      "pageNo": 5,
+      "script": "讲解与 TTS：每页绑定讲解词 script ，通过 TTS 播报；支持自动或手动翻页策\n略。\n                                       5"
+    },
+    {
+      "pageNo": 6,
+      "script": "语音交互：采集麦克风语音，经 ASR 得到文本，再识别为命令或提问。\n                                6"
+    },
+    {
+      "pageNo": 7,
+      "script": "问答 RAG：基于页面 title 、 content 、 script 构建检索，当前页优先。\n                                            7"
+    },
+    {
+      "pageNo": 8,
+      "script": "降级与复盘：外部服务不可用时进入降级模式；关键事件写入日志便于复盘。\n                               8"
+    },
+    {
+      "pageNo": 9,
+      "script": "验收数据：本 presentations 目录供各里程碑加载与联调使用。\n                                  9"
+    },
+    {
+      "pageNo": 10,
+      "script": "里程碑 M0：脚手架、健康检查、示例数据加载。\n                   10"
+    },
+    {
+      "pageNo": 11,
+      "script": "后续计划：M1 播放与控制； M2 讲解与 TTS ； M3 语音； M4 问答； M5\n日志与稳定性。\n                                          11"
+    },
+    {
+      "pageNo": 12,
+      "script": "谢谢：感谢使用 play-ppt 。\n                  12"
+    }
+  ]
+}

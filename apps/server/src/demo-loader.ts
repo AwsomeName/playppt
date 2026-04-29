@@ -54,6 +54,8 @@ export function loadPresentation(presentationsDir: string, presentationId: strin
     assetBaseUrl: `/api/presentations/${encodeURIComponent(manifest.presentationId)}/assets`,
     ...(manifest.chapters ? { chapters: manifest.chapters } : {}),
     ...(kb?.chunks && kb.chunks.length > 0 ? { kb: kb.chunks } : {}),
+    ...(scripts.opening ? { opening: scripts.opening } : {}),
+    ...(scripts.closing ? { closing: scripts.closing } : {}),
     pages: manifest.pages.map((p) => ({
       pageNo: p.pageNo,
       title: p.title,

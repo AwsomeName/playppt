@@ -429,7 +429,7 @@ export function PlayPage() {
     ? session.pagesData[session.currentPage - 1]
     : null;
 
-  const currentSlideUrl = session?.slideImagesBaseUrl && session?.slideImages
+  const currentSlideUrl = session?.slideImagesBaseUrl && session?.slideImages && session.currentPage >= 1
     ? `${session.slideImagesBaseUrl}/${session.slideImages[session.currentPage - 1]?.file}`
     : null;
 
@@ -623,6 +623,55 @@ export function PlayPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{ color: '#64748b', fontSize: 16 }}>加载中...</div>
+        </div>
+      ) : session.subState === 'opening_narrating' && session.opening ? (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column',
+        }}>
+          <div style={{
+            background: 'rgba(15,23,42,0.88)',
+            borderRadius: 16,
+            padding: '2rem 3rem',
+            maxWidth: 700,
+            textAlign: 'center',
+          }}>
+            <h1 style={{ color: '#e2e8f0', fontSize: 32, margin: '0 0 1rem' }}>{session.title}</h1>
+            <p style={{ color: '#94a3b8', fontSize: 18, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.opening}</p>
+            <div style={{ color: '#64748b', fontSize: 13, marginTop: '1rem' }}>开场白播报中...</div>
+          </div>
+        </div>
+      ) : session.subState === 'closing_narrating' && session.closing ? (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column',
+        }}>
+          {currentSlideUrl ? (
+            <SlideImageView
+              url={currentSlideUrl}
+              title={current?.title ?? ''}
+              fallbackContent={current?.content ?? ''}
+              fullscreen
+            />
+          ) : null}
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.5)',
+          }}>
+            <div style={{
+              background: 'rgba(15,23,42,0.88)',
+              borderRadius: 16,
+              padding: '2rem 3rem',
+              maxWidth: 700,
+              textAlign: 'center',
+            }}>
+              <p style={{ color: '#94a3b8', fontSize: 18, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.closing}</p>
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: '1rem' }}>收尾播报中...</div>
+            </div>
+          </div>
         </div>
       ) : current && currentSlideUrl ? (
         <SlideImageView

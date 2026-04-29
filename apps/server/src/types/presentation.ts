@@ -51,6 +51,10 @@ export interface DemoPresentation {
   kb?: KnowledgeBaseChunk[];
   /** 1.1.6：提供 chapters 时「到第X章」才可视为稳定 control */
   chapters?: DemoChapter[];
+  /** 开场白（START 后、第1页之前播报） */
+  opening?: string;
+  /** 收尾（最后页之后播报，然后自动结束） */
+  closing?: string;
   pages: DemoPage[];
 }
 
@@ -64,6 +68,10 @@ export interface PresentationManifest {
 }
 
 export interface PresentationScripts {
+  /** 开场白（START 后、第1页之前播报） */
+  opening?: string;
+  /** 收尾（最后页之后播报，然后自动结束） */
+  closing?: string;
   scripts: PresentationScriptEntry[];
 }
 

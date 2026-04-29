@@ -61,13 +61,20 @@ export function useNarration(
 
   const sid = session?.sessionId;
   const page = session?.currentPage ?? 0;
-  const script =
-    session && page >= 1 ? session.pagesData[page - 1]?.script ?? '' : '';
   const sub = session?.subState;
   const top = session?.topState;
   const ttsOn = session?.narrationTtsEnabled !== false;
   const hint = session?.ttsBackend ?? 'client';
   const countdownSec = session?.autoCountdownSec ?? 3;
+
+  let script: string;
+  if (sub === 'opening_narrating') {
+    script = session?.opening ?? '';
+  } else if (sub === 'closing_narrating') {
+    script = session?.closing ?? '';
+  } else {
+    script = session && page >= 1 ? session.pagesData[page - 1]?.script ?? '' : '';
+  }
 
   // 选了具体输出设备时强制走服务端 TTS（HTML Audio 才能 setSinkId）。
   useEffect(() => {
@@ -127,7 +134,7 @@ export function useNarration(
   useEffect(() => {
     if (typeof window === 'undefined' || !sid || !ttsOn) return;
 
-    if (top !== 'presenting' || sub !== 'narrating' || !script) {
+    if (top !== 'presenting' || (sub !== 'narrating' && sub !== 'opening_narrating' && sub !== 'closing_narrating') || !script) {
       playGenRef.current += 1;
       cancelPlayback();
       return;

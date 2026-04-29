@@ -91,6 +91,10 @@ export interface SessionGetResult {
   slideImages?: import('../types/presentation.js').SlideImageEntry[];
   pages: SessionPageSnapshot[];
   pagesData: DemoPage[];
+  /** 开场白（START 后、第1页之前播报） */
+  opening?: string;
+  /** 收尾（最后页之后播报） */
+  closing?: string;
   /** 自动翻页前倒计时的秒数（M2+） */
   autoCountdownSec: number;
   /** 前端可选：无 OpenAI 时用 client（SpeechSynthesis）；有 key 时可用 openai */
@@ -294,6 +298,8 @@ function fsmContext(s: Session): FsmTransitionContext {
     /** ai-dev-plan 4.8：降级时禁用自动翻页 */
     advanceMode: s.fallbackMode ? 'manual' : s.advanceMode,
     restorePresentingSub: s.resumePresentingSub,
+    hasOpening: !!s.presentation.opening,
+    hasClosing: !!s.presentation.closing,
   };
 }
 
@@ -476,11 +482,27 @@ function applySuccessTransition(
     s.resumePresentingSub = from.presentingSub ?? 'narrating';
     applyQuestionInterruptToPage(s, from.currentPage);
   }
-  if (pageOrEntryChanged && nxt.currentPage >= 1) {
+  if (op.includes('enterPage') || op.includes('openingDone') || op.includes('openingFailed')) {
     if (from.currentPage >= 1) {
       applyDwellOnLeave(s, from.currentPage);
     }
-    enterPage(s, nxt.currentPage);
+    if (nxt.currentPage >= 1) {
+      enterPage(s, nxt.currentPage);
+    }
+  }
+  if (op.includes('enterOpening')) {
+    s.pageEnteredAtMs = Date.now();
+  }
+  if (op.includes('enterClosing')) {
+    s.pageEnteredAtMs = Date.now();
+  }
+  if (op.includes('turnPageNext') || op.includes('turnPagePrev') || op.includes('turnPageGoto') || op.includes('fromAutoCountdown')) {
+    if (from.currentPage >= 1) {
+      applyDwellOnLeave(s, from.currentPage);
+    }
+    if (nxt.currentPage >= 1) {
+      enterPage(s, nxt.currentPage);
+    }
   }
   s.fsm = nxt;
   if (op.includes('errorRecoverableFromPresenting')) {
@@ -743,6 +765,8 @@ export const sessionService = {
       slideImages: s.presentation.slideImages,
       pages: s.pages.map(toSnapshot),
       pagesData: s.presentation.pages,
+      opening: s.presentation.opening,
+      closing: s.presentation.closing,
       autoCountdownSec: config.autoAdvanceCountdownSec,
       ttsBackend: getTtsBackendHint(),
       narrationTtsEnabled: config.narrationTtsEnabled,
