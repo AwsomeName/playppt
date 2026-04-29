@@ -18,6 +18,21 @@
 
 > **总览**（产品边界、分层职责、口播+检索+问答数据、**控制命令有限集**、章节与 XState/测试策略）以 `docs/ai-dev-plan.md` **第 1.1 节**为准；下文为便于阅读的摘要。
 
+### 2.0 当前仓库实现（运行时架构）
+
+便于对照代码阅读，与上表「分层」一一对应。
+
+| 层级 | 在本仓库中的位置 |
+| --- | --- |
+| Web 客户端 | `apps/web`：`App.tsx` 注册路由；`ManagePage`（路径 `/`）负责选稿与会话；`PlayPage`（`/play/:sessionId`）负责放映与交互。`api.ts` 统一请求后端；`useNarration` 驱动口播与 TTS；`VoicePanel` / `ChatPanel` / `PlayControls` / `SlideImageView` 等组装 UI。 |
+| Agent 服务 | `apps/server`：`index.ts` 挂载 `app.use('/api', …)`；`services/session-service.ts` 持有内存会话并调用 `domain/state-machine.ts` 的 `transition`，**禁止**在路由里手写与 FSM 表矛盾的状态跳转；`routes/api.ts` 只做参数校验、I/O 与调用 session 服务。 |
+| AI 能力 | `apps/server/src/ai/`：`provider.ts` 聚合 ASR、流式 TTS、问答；`volc-*.ts`、`openai-*.ts` 等按 `AI_PROVIDER`（及环境变量）选择实现；不可用时可走 mock。 |
+| 数据 | **演示物**：`presentations/<id>/`（`manifest.json`、`scripts.json`、可选 `kb.json`、`deck.pptx`、`slides/`）；目录根可用 `PPT_PRESENTATIONS_DIR` 覆盖。**会话**：进程内 Map + `PageContext` 等（见 `types/session.ts`）。**审计**：`services/session-audit-log.ts` 写 `var/session-logs/*.ndjson`（默认，可配置 `PPT_SESSION_LOG_DIR`）。 |
+
+**工程形态**：仓库根目录为 npm workspace（`workspaces: apps/*`），根脚本 `npm run dev` 用 `concurrently` 同时启动 `apps/server`（默认端口见 `config`，常见 3001）与 `apps/web`（Vite，常见 5173）。生产构建为 `npm run build`（先 server 后 web）。
+
+**PPTX 与幻灯片**：上传或放置 `deck.pptx` 后，可在服务端用 LibreOffice 转为逐页 PNG（`services/pptx-converter.ts` 等，受 `PPT_LIBREOFFICE_CONVERT` 等配置影响）；页面文本仍以 `manifest.json` 为准，不依赖解析 `.pptx` 版式。
+
 采用“前端控制台 + Agent 服务 + AI 能力层”的分层结构。
 
 - **Web 客户端（Presentation UI）**
@@ -157,6 +172,32 @@
 
 - `GET /api/session/:id`
   - 出参：`{ sessionId, currentPage, state, mode, updatedAt, pages[] }`
+
+### 5.1 当前已实现的主要 HTTP 端点（`apps/server/src/routes/api.ts`）
+
+与上文核心契约一致，并包含演示稿管理与口播、语音等扩展（实现细节以源码为准）。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/presentations` | 列出 `presentations/` 下演示稿 |
+| GET/PUT | `/api/presentations/:id/scripts` | 读/写口播 JSON（写需 `PPT_PRESENTATION_EDITOR=true`） |
+| POST | `/api/presentations/:id/scripts/upload` | 上传口播文稿文件并解析写入 |
+| GET/PUT | `/api/presentations/:id/kb` | 读/写知识库 |
+| GET | `/api/presentations/:id/assets/:file`、`/slides/:file` | 演示稿静态资源与幻灯片 PNG |
+| POST | `/api/presentations/upload` | 上传 PPTX，生成目录与可选转图 |
+| DELETE | `/api/presentations/:id` | 删除演示稿目录（需编辑开关） |
+| POST | `/api/session/start` | 创建会话 |
+| POST | `/api/control` | 控制命令（与状态机 `action` 对齐） |
+| GET | `/api/session/:id` | 会话快照 |
+| GET | `/api/session/:id/logs` | 会话审计日志 |
+| POST | `/api/session/:id/narration` | 口播进度/事件上报 |
+| GET | `/api/session/:id/tts-audio`、`/tts-audio/sentences` | 服务端 TTS 音频流/分句 |
+| POST | `/api/interpret` | 文本意图（控制 vs 建议问答） |
+| POST | `/api/ask` | 问答 |
+| POST | `/api/voice/text` | 文本走语音管线（意图+控制/问答） |
+| POST | `/api/voice/utterance` | 上传音频 → ASR → 同上等管线 |
+
+独立于 `/api`：`GET /health`（进程与 demo 摘要等）。
 
 ## 6. 开发里程碑
 

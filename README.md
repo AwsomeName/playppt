@@ -1,6 +1,8 @@
 # playppt
 
-基于 Web-PPT 的 PPT 讲解 Agent 项目。
+基于 Web 的 PPT 讲解 Agent：浏览器里看幻灯片（PNG）、按页口播 TTS、语音/文本问答，**会话与翻页状态以后端状态机为唯一真源**，前端负责展示与控制面调用。
+
+**架构与模块说明**见 `docs/project.md`（含当前代码布局与 API 摘要）；**里程碑与接口真源**见 `docs/ai-dev-plan.md`。
 
 ## 新环境：安装与启动
 
@@ -79,9 +81,20 @@ npm run e2e
 
 ## 目录说明
 
-- `apps/web`：前端（Vite + React + TypeScript）
+- `apps/web`：前端（Vite + React + TypeScript + React Router）
+  - `/`：`ManagePage`，选演示稿、创建会话、（可选）编辑口播与知识库
+  - `/play/:sessionId`：`PlayPage`，放映幻灯片、播放控制、语音面板与问答
 - `apps/server`：后端（Express + TypeScript）
-- `presentations/demo`：示例演示目录，`manifest.json` 放目标 PPT 元数据与页面内容，`scripts.json` 放逐页解说词，`deck.pptx` 由使用者本地放入
+  - `routes/api.ts`：REST API（会话、控制、口播 TTS、问答、语音等）
+  - `domain/`：会话状态机、意图解析
+  - `services/`：会话编排、演示稿文件、PPTX 转图、审计日志等
+  - `ai/`：ASR / TTS / 问答管线（可按配置使用 mock、火山或 OpenAI）
+- `presentations/<presentationId>/`：每个演示稿一个目录（示例为 `demo`，也可多个 ID 并存）
+  - `manifest.json`：元数据与 `pages[]`（页码、标题、正文）
+  - `scripts.json`：逐页口播；可选 `opening` / `closing`
+  - `kb.json`：可选知识库（编辑口播时可用）
+  - `deck.pptx`：源文件；可选由服务端转为 `slides/slide-*.png` 供前端展示
+- `var/session-logs/`：会话 NDJSON 日志（默认路径，已在 `.gitignore`）
 - `fixtures/demo.json`：旧版兼容 fixture（测试与回退用）
 
 ## AI 服务配置
