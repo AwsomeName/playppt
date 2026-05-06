@@ -58,9 +58,34 @@ npm run dev -w apps/web      # 仅前端
 
 ```bash
 npm run build
+npm run start:prod    # 同时常驻后端 dist + 前端 vite preview（5173），适合本机长期使用
+# 或分别启动：
 npm run start -w apps/server   # 后端运行编译产物（需先 build）
-npm run start -w apps/web      # 前端预览构建结果（默认端口见 apps/web）
+npm run start -w apps/web      # 前端预览构建结果（5173；已将 /api、/health 代理到 3001）
 ```
+
+### Mac 本机后台常驻与登录自启（LaunchAgent）
+
+**这条路线在 macOS 上是官方支持的**（用户级 `LaunchAgents` + `launchctl bootstrap`），可行。
+
+1. **不要用 `npm run dev` 做常驻**。先 **`npm install && npm run build`**。
+2. **手动常驻**：终端执行 **`npm run start:prod`**（关终端即停，除非用 tmux 等）。
+3. **登录后自动拉起、进程挂了会再试**：在仓库根执行：
+
+   ```bash
+   npm run install:launchagent-mac
+   # 等价于：bash scripts/macos/install-launchagent.sh
+   ```
+
+   脚本会：把 `scripts/macos/launchd/com.playppt.app.plist.example` 里的路径填成你本机目录 → 写入 `~/Library/LaunchAgents/com.playppt.app.plist` → **`launchctl bootstrap`** 注册。  
+   之后**每次登录该用户**都会跑 `npm run start:prod`（`RunAtLoad` + `KeepAlive`）。
+
+   - 立刻重拉一次进程：`launchctl kickstart -k gui/$(id -u)/com.playppt.app`
+   - 卸载：`launchctl bootout gui/$(id -u)/com.playppt.app`
+
+若 Node/npm 来自 **nvm / fnm**，系统环境可能仍找不到 `npm`：请编辑已生成的 plist，把 `ProgramArguments` 改成带 `source ~/.zshrc`（或你的配置）的一行，见上文「说人话」里的说明。
+
+**说明**：会话仍在服务端内存中，**整机重启或结束 node 进程后会话会清空**；更新代码后需 **`npm run build`** 再 **`kickstart`**。
 
 ## 构建与检查
 

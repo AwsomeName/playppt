@@ -14,6 +14,14 @@ export default defineConfig(({ mode }) => {
         '/health': { target: apiTarget, changeOrigin: true },
       },
     },
+    /** 与 `npm run start`（vite preview）配合后端同机常驻时，需同样转发 /api */
+    preview: {
+      port: 5173,
+      proxy: {
+        '/api': { target: apiTarget, changeOrigin: true },
+        '/health': { target: apiTarget, changeOrigin: true },
+      },
+    },
     test: {
       environment: 'jsdom',
     },

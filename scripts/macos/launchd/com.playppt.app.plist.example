@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  由 install-launchagent.sh 把 __PLAY_PPT_ROOT__ / __PLAY_PPT_LOG_DIR__ 替换成真实路径后
+  写入 ~/Library/LaunchAgents/com.playppt.app.plist
+
+  手动安装时：全局替换上述两个占位符，再执行：
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.playppt.app.plist
+
+  nvm/fnm 用户：请编辑生成的 plist，把 ProgramArguments 改成能加载你 shell 里 PATH 的写法
+  （见 README「Mac 本机后台常驻」一节）。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.playppt.app</string>
+
+  <key>WorkingDirectory</key>
+  <string>__PLAY_PPT_ROOT__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>NODE_ENV</key>
+    <string>production</string>
+  </dict>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd __PLAY_PPT_ROOT__ &amp;&amp; exec npm run start:prod</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__PLAY_PPT_LOG_DIR__/play-ppt.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__PLAY_PPT_LOG_DIR__/play-ppt.err.log</string>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>
