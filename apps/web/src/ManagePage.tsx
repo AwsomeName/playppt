@@ -50,6 +50,7 @@ export function ManagePage() {
   const [openingDraft, setOpeningDraft] = useState('');
   const [closingDraft, setClosingDraft] = useState('');
   const [kbJson, setKbJson] = useState('{"chunks":[]}');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
@@ -113,17 +114,25 @@ export function ManagePage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm(`确定删除演示稿 ${id}？`)) return;
+  const handleDelete = async (id: string, title: string) => {
+    if (deletingId) return;
+    if (!confirm(`确定删除演示稿「${title}」？此操作不可撤销。`)) return;
     setMsg(null);
     setErr(null);
+    setDeletingId(id);
     try {
       await apiDeletePresentation(id);
-      setMsg(`已删除 ${id}`);
-      if (selectedId === id) setSelectedId(null);
+      setMsg(`已删除「${title}」`);
+      if (selectedId === id) {
+        setSelectedId(null);
+        setScripts(null);
+        setKbJson('{"chunks":[]}');
+      }
       await loadList();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -356,16 +365,26 @@ export function ManagePage() {
                     >
                       播放
                     </button>
-                    {editorEnabled && (
+                    {p.presentationId !== 'demo' && (
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); void handleDelete(p.presentationId); }}
+                        disabled={deletingId === p.presentationId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDelete(p.presentationId, p.title);
+                        }}
                         style={{
-                          background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.25)',
-                          borderRadius: 4, padding: '0.2rem 0.6rem', color: '#fca5a5', cursor: 'pointer', fontSize: 12,
+                          background: 'rgba(239,68,68,0.15)',
+                          border: '1px solid rgba(239,68,68,0.25)',
+                          borderRadius: 4,
+                          padding: '0.2rem 0.6rem',
+                          color: '#fca5a5',
+                          cursor: deletingId === p.presentationId ? 'wait' : 'pointer',
+                          fontSize: 12,
+                          opacity: deletingId === p.presentationId ? 0.6 : 1,
                         }}
                       >
-                        删除
+                        {deletingId === p.presentationId ? '删除中…' : '删除'}
                       </button>
                     )}
                   </div>

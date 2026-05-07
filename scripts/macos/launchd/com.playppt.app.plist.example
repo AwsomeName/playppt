@@ -9,6 +9,9 @@
 
   nvm/fnm 用户：请编辑生成的 plist，把 ProgramArguments 改成能加载你 shell 里 PATH 的写法
   （见 README「Mac 本机后台常驻」一节）。
+
+  后端默认监听 PORT=3002、VITE_API_BASE 指向同端口：避免 Cursor 等对 localhost:3001
+  的端口转发与本服务抢 3001 导致 EADDRINUSE。
 -->
 <plist version="1.0">
 <dict>
@@ -24,6 +27,10 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>NODE_ENV</key>
     <string>production</string>
+    <key>PORT</key>
+    <string>3002</string>
+    <key>VITE_API_BASE</key>
+    <string>http://127.0.0.1:3002</string>
   </dict>
 
   <key>ProgramArguments</key>

@@ -4,7 +4,10 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = env.VITE_API_BASE || 'http://localhost:3001';
+  const apiTarget =
+    (process.env.VITE_API_BASE && process.env.VITE_API_BASE.trim()) ||
+    env.VITE_API_BASE ||
+    'http://localhost:3001';
   return {
     plugins: [react()],
     server: {

@@ -311,10 +311,14 @@ apiRouter.post('/presentations/upload', deckUpload.single('deck'), async (req: R
   }
 });
 
-apiRouter.delete('/presentations/:id', requirePresentationEditor, (req: Request, res: Response) => {
+apiRouter.delete('/presentations/:id', (req: Request, res: Response) => {
   const id = safePresentationId(String(req.params.id ?? ''));
   if (!id) {
     res.status(400).json({ error: 'invalid presentation id' });
+    return;
+  }
+  if (id === 'demo') {
+    res.status(400).json({ error: '内置 demo 不可删除' });
     return;
   }
   const presDir = join(config.presentationsDir, id);
@@ -325,7 +329,13 @@ apiRouter.delete('/presentations/:id', requirePresentationEditor, (req: Request,
   try {
     rmSync(presDir, { recursive: true, force: true });
     invalidatePresentationCache(id);
-    res.json({ ok: true });
+    const removedSessions = sessionService.removeSessionsByPresentation(id);
+    logger.info('presentation deleted', {
+      kind: 'presentation',
+      presentationId: id,
+      removedSessions,
+    });
+    res.json({ ok: true, removedSessions });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

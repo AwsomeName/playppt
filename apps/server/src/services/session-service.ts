@@ -562,6 +562,30 @@ export const sessionService = {
     return sessions.has(sid);
   },
 
+  /** 删除某演示稿后调用，丢弃所有引用该演示稿的活动会话，避免播放页继续访问已删除资源。 */
+  removeSessionsByPresentation(presentationId: string): number {
+    let removed = 0;
+    for (const [sid, s] of sessions) {
+      if (s.presentation.presentationId === presentationId) {
+        sessions.delete(sid);
+        void appendSessionAudit(sid, {
+          type: 'session_removed',
+          reason: 'presentation_deleted',
+          presentationId,
+        });
+        removed += 1;
+      }
+    }
+    if (removed > 0) {
+      logger.info('sessions removed for deleted presentation', {
+        kind: 'session',
+        presentationId,
+        removed,
+      });
+    }
+    return removed;
+  },
+
   startSession(presentationId: string): StartSessionResult {
     const p = getPresentation(presentationId);
     const id = randomUUID();
