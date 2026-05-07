@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      port: 5173,
+      port: 35172,
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true },
         '/health': { target: apiTarget, changeOrigin: true },
@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
     },
     /** 与 `npm run start`（vite preview）配合后端同机常驻时，需同样转发 /api */
     preview: {
-      port: 5173,
+      port: 35172,
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true },
         '/health': { target: apiTarget, changeOrigin: true },
