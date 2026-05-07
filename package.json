@@ -8,6 +8,7 @@
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
     "start:prod": "concurrently -n server,web -c blue,green \"npm run start -w apps/server\" \"npm run start -w apps/web\"",
     "install:launchagent-mac": "bash scripts/macos/install-launchagent.sh",
+    "install:systemd-user": "bash scripts/linux/install-systemd-user.sh",
     "build": "npm run build -w apps/server && npm run build -w apps/web",
     "lint": "npm run lint -w apps/server && npm run lint -w apps/web",
     "test": "npm run test -w apps/server && npm run test -w apps/web",

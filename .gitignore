@@ -18,3 +18,8 @@ tmp-context.md
 
 # 本地工具配置
 .claude/
+
+# 演示稿目录：仅跟踪内置 presentations/demo；其余为运行时上传，勿提交
+/presentations/*
+!/presentations/demo/
+!/presentations/demo/**

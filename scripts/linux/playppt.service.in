@@ -1,0 +1,17 @@
+[Unit]
+Description=play-ppt (__MODE_LABEL__)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__PLAYPPT_ROOT__
+# login shell：加载 ~/.profile / nvm / fnm 等，确保能找到 npm/node
+ExecStart=/bin/bash -lc '__NPM_SCRIPT__'
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
