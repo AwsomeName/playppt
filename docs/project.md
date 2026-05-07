@@ -29,7 +29,7 @@
 | AI 能力 | `apps/server/src/ai/`：`provider.ts` 聚合 ASR、流式 TTS、问答；`volc-*.ts`、`openai-*.ts` 等按 `AI_PROVIDER`（及环境变量）选择实现；不可用时可走 mock。 |
 | 数据 | **演示物**：`presentations/<id>/`（`manifest.json`、`scripts.json`、可选 `kb.json`、`deck.pptx`、`slides/`）；目录根可用 `PPT_PRESENTATIONS_DIR` 覆盖。**会话**：进程内 Map + `PageContext` 等（见 `types/session.ts`）。**审计**：`services/session-audit-log.ts` 写 `var/session-logs/*.ndjson`（默认，可配置 `PPT_SESSION_LOG_DIR`）。 |
 
-**工程形态**：仓库根目录为 npm workspace（`workspaces: apps/*`），根脚本 `npm run dev` 用 `concurrently` 同时启动 `apps/server`（默认端口见 `config`，常见 3001）与 `apps/web`（Vite，常见 5173）。生产构建为 `npm run build`（先 server 后 web）。
+**工程形态**：仓库根目录为 npm workspace（`workspaces: apps/*`），根脚本 `npm run dev` 用 `concurrently` 同时启动 `apps/server`（默认端口见 `config`，常见 3001）与 `apps/web`（Vite，默认 35172）。生产构建为 `npm run build`（先 server 后 web）。本机长期常驻见 `README.md` 「部署：本机后台长期运行」（Linux: `npm run install:systemd-user`；macOS: `npm run install:launchagent-mac`）。
 
 **PPTX 与幻灯片**：上传或放置 `deck.pptx` 后，可在服务端用 LibreOffice 转为逐页 PNG（`services/pptx-converter.ts` 等，受 `PPT_LIBREOFFICE_CONVERT` 等配置影响）；页面文本仍以 `manifest.json` 为准，不依赖解析 `.pptx` 版式。
 

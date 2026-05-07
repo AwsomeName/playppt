@@ -26,14 +26,14 @@
    ```
 
 3. **环境变量（推荐）**  
-   复制示例文件并按需填写（密钥勿提交到 Git；`.env` 已在 `.gitignore` 中）：
+   有两份示例文件，按需选用，**两者字段一致；环境变量优先级：`process.env` / `.env` > `local.properties`**：
 
    ```bash
-   cp .env.example .env
+   cp .env.example .env                       # 跨平台、构建/CI 推荐
+   cp local.properties.example local.properties  # 本机长期保管密钥；已在 .gitignore 中，不会被提交
    ```
 
-   不接真实 AI 服务时，可在 `.env` 中设置 `AI_PROVIDER=mock` 先跑通主链路；接入火山等配置见下文「AI 服务配置」。  
-   若你更习惯把密钥放在本机文件，可在项目根目录创建 **`local.properties`**（该文件已加入 `.gitignore`，勿提交），字段说明见下文「AI 服务配置」。
+   不接真实 AI 服务时，可在 `.env` 中设置 `AI_PROVIDER=mock` 先跑通主链路；接入火山等配置见下文「AI 服务配置」。
 
 4. **启动开发服务**（根目录一条命令同时起前后端）：
 
@@ -41,8 +41,10 @@
    npm run dev
    ```
 
-   - **前端**：<http://localhost:5173>（Vite；首页会请求后端 `/health` 展示状态）  
+   - **前端**：<http://localhost:35172>（Vite；首页会请求后端 `/health` 展示状态）  
    - **后端**：<http://localhost:3001/health>（Express；含已加载的 `presentations/demo` 摘要）
+
+   > 端口可改：前端在 `apps/web/vite.config.ts`（`server.port` / `preview.port`）与 `apps/web/package.json` 的 `start`；后端通过环境变量 `PORT`（默认 `3001`）。前端在开发与预览时都会把 `/api`、`/health` 代理到 `VITE_API_BASE`（默认 `http://localhost:3001`）。
 
 5. **验证**  
    浏览器打开前端地址；若页面正常且健康检查有响应，说明安装与启动成功。
@@ -58,35 +60,73 @@ npm run dev -w apps/web      # 仅前端
 
 ```bash
 npm run build
-npm run start:prod    # 同时常驻后端 dist + 前端 vite preview（5173），适合本机长期使用
+npm run start:prod    # 同时常驻后端 dist + 前端 vite preview（35172），适合本机长期使用
 # 或分别启动：
 npm run start -w apps/server   # 后端运行编译产物（需先 build）
-npm run start -w apps/web      # 前端预览构建结果（5173；已将 /api、/health 代理到 3001）
+npm run start -w apps/web      # 前端预览构建结果（35172；已将 /api、/health 代理到 3001）
 ```
 
-### Mac 本机后台常驻与登录自启（LaunchAgent）
+## 部署：本机后台长期运行
 
-**这条路线在 macOS 上是官方支持的**（用户级 `LaunchAgents` + `launchctl bootstrap`），可行。
+下面两条路线分别给 **macOS** 与 **Linux**，目标一致：服务挂掉自动重启、登录后自动拉起；**不要用 `npm run dev` 做长期生产常驻**（默认走 `npm run start:prod`，要先 `npm run build`）。
 
-1. **不要用 `npm run dev` 做常驻**。先 **`npm install && npm run build`**。
-2. **手动常驻**：终端执行 **`npm run start:prod`**（关终端即停，除非用 tmux 等）。
-3. **登录后自动拉起、进程挂了会再试**：在仓库根执行：
+### Linux：systemd 用户服务（推荐）
+
+仓库内 `scripts/linux/install-systemd-user.sh` 会写一个用户级 `~/.config/systemd/user/playppt.service` 并注册启动。
+
+```bash
+# 0) 先安装依赖（首次）
+npm install
+
+# 1) 生产模式（默认）：先 build，再用 npm run start:prod 常驻
+npm run install:systemd-user
+
+# 1) 开发模式（可选）：直接托管 npm run dev，跳过 build
+npm run install:systemd-user -- --dev
+
+# 自定义单元名（默认 playppt）
+npm run install:systemd-user -- --unit-name playppt-stage
+```
+
+常用命令（默认单元名 `playppt`）：
+
+```bash
+systemctl --user status playppt          # 状态
+systemctl --user restart playppt         # 重启
+systemctl --user stop playppt            # 停止
+systemctl --user disable playppt         # 取消登录自启
+journalctl --user -u playppt -f          # 跟随日志
+```
+
+> **注销/无图形会话也想保持运行**：执行一次 `sudo loginctl enable-linger "$USER"`，否则用户级 systemd 会随会话关闭而停止。  
+> **更新代码后**：生产模式需 `npm run build && systemctl --user restart playppt`；开发模式（`tsx watch` + Vite）一般会自动热重载。  
+> **端口冲突**：脚本启动前会尝试释放本机 `35172` 与 `3001`；若被其它服务占用，请先调整端口（见上文「端口可改」）。
+
+### macOS：LaunchAgent（登录自启）
+
+**这条路线在 macOS 上是官方支持的**（用户级 `LaunchAgents` + `launchctl bootstrap`）。
+
+1. 先 **`npm install && npm run build`**，再在仓库根执行：
 
    ```bash
    npm run install:launchagent-mac
    # 等价于：bash scripts/macos/install-launchagent.sh
    ```
 
-   脚本会：把 `scripts/macos/launchd/com.playppt.app.plist.example` 里的路径填成你本机目录 → 写入 `~/Library/LaunchAgents/com.playppt.app.plist` → **`launchctl bootstrap`** 注册。  
-   之后**每次登录该用户**都会跑 `npm run start:prod`（`RunAtLoad` + `KeepAlive`）。  
-   为减少 **Cursor 等对 `localhost:3001` 端口转发** 与本服务抢端口，plist 内默认 **`PORT=3002`** 且 **`VITE_API_BASE=http://127.0.0.1:3002`**（前端仍通过 5173 代理 `/api`）。直连健康检查：<http://127.0.0.1:3002/health>。
+   脚本会把 `scripts/macos/launchd/com.playppt.app.plist.example` 里的路径填成你本机目录 → 写入 `~/Library/LaunchAgents/com.playppt.app.plist` → 用 `launchctl bootstrap` 注册。之后**每次登录该用户**都会跑 `npm run start:prod`（`RunAtLoad` + `KeepAlive`）。
 
-   - 立刻重拉一次进程：`launchctl kickstart -k gui/$(id -u)/com.playppt.app`
+   - 重拉一次：`launchctl kickstart -k gui/$(id -u)/com.playppt.app`
    - 卸载：`launchctl bootout gui/$(id -u)/com.playppt.app`
 
-若 Node/npm 来自 **nvm / fnm**，系统环境可能仍找不到 `npm`：请编辑已生成的 plist，把 `ProgramArguments` 改成带 `source ~/.zshrc`（或你的配置）的一行，见上文「说人话」里的说明。
+   为避免与 **Cursor 等对 `localhost:3001` 的端口转发** 抢端口，plist 内默认 `PORT=3002` 且 `VITE_API_BASE=http://127.0.0.1:3002`（前端仍通过 35172 代理 `/api`）。直连健康检查：<http://127.0.0.1:3002/health>。
 
-**说明**：会话仍在服务端内存中，**整机重启或结束 node 进程后会话会清空**；更新代码后需 **`npm run build`** 再 **`kickstart`**。
+   若 Node/npm 来自 **nvm / fnm**，可能找不到 `npm`：请编辑生成的 plist，把 `ProgramArguments` 改成带 `source ~/.zshrc`（或你的配置）的一行。
+
+### 通用注意事项
+
+- **会话仅存内存**：整机重启或 node 进程被结束后，已开的会话会清空；演示稿 / 口播 / 知识库这类磁盘文件不受影响。
+- **更新代码**：生产模式记得 `npm run build` 再重启服务；不 build 直接重启会跑旧的 `dist/`。
+- **端口冲突**：35172（Web）与 3001（API）若被占用，可改环境变量 `PORT` 与 `VITE_API_BASE`，并同步 `apps/web/vite.config.ts` 的端口。
 
 ## 构建与检查
 
@@ -115,23 +155,31 @@ npm run e2e
   - `domain/`：会话状态机、意图解析
   - `services/`：会话编排、演示稿文件、PPTX 转图、审计日志等
   - `ai/`：ASR / TTS / 问答管线（可按配置使用 mock、火山或 OpenAI）
-- `presentations/<presentationId>/`：每个演示稿一个目录（示例为 `demo`，也可多个 ID 并存）
+- `presentations/<presentationId>/`：每个演示稿一个目录
+  - **仅 `presentations/demo` 入版本库**（演示稿基线）；用户上传的其它目录已通过 `.gitignore` 排除，不会进 Git
   - `manifest.json`：元数据与 `pages[]`（页码、标题、正文）
   - `scripts.json`：逐页口播；可选 `opening` / `closing`
   - `kb.json`：可选知识库（编辑口播时可用）
   - `deck.pptx`：源文件；可选由服务端转为 `slides/slide-*.png` 供前端展示
+- `scripts/linux/`：Linux systemd 用户服务安装脚本（`npm run install:systemd-user`）
+- `scripts/macos/`：macOS LaunchAgent 安装脚本（`npm run install:launchagent-mac`）
 - `var/session-logs/`：会话 NDJSON 日志（默认路径，已在 `.gitignore`）
 - `fixtures/demo.json`：旧版兼容 fixture（测试与回退用）
 
 ## AI 服务配置
 
-默认 `AI_PROVIDER=volc`，服务端会优先读取 `.env`，缺失时再读本机 `local.properties` 中的火山云字段：
+默认 `AI_PROVIDER=volc`，服务端读取顺序：**`process.env` / `.env`** → **`local.properties`** → 代码内默认值。两份示例文件分别是：
+
+- `.env.example`：跨平台、构建/CI 通用，复制为 `.env`
+- `local.properties.example`：本机长期保管密钥，复制为 `local.properties`（已在 `.gitignore`）
+
+最少需要的火山云字段：
 
 - `VOLC_APP_ID`
 - `VOLC_ACCESS_TOKEN`
 - `VOLC_SECRET_KEY`
 - `VOLC_TTS_RESOURCE_ID`（默认 `seed-tts-2.0`，火山豆包大模型 TTS）
-- `VOLC_TTS_SPEAKER`（默认 `zh_female_meilinvyou_saturn_bigtts`）
+- `VOLC_TTS_SPEAKER`（默认 `zh_female_meilinvyou_uranus_bigtts`；`seed-tts-2.0` 仅认 `*_uranus_bigtts` 后缀）
 - `VOLC_ASR_RESOURCE_ID`
 
 真实密钥不要写入文档或提交；如需临时绕过外部服务，可设 `AI_PROVIDER=mock`。
