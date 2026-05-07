@@ -16,6 +16,8 @@ import {
   writePresentationKb,
   writePresentationScripts,
 } from '../services/presentation-files.js';
+import { parseScriptContent, stripMarkdown } from '../services/script-parser.js';
+import { parseKbContent } from '../services/kb-parser.js';
 import { appendSessionAudit, readSessionAuditLines } from '../services/session-audit-log.js';
 import {
   invalidatePresentationCache,
@@ -46,106 +48,6 @@ function requirePresentationEditor(_req: Request, res: Response, next: NextFunct
 function safePresentationId(raw: string): string | null {
   if (!raw || !/^[a-zA-Z0-9_-]+$/.test(raw)) return null;
   return raw;
-}
-
-/** Strip Markdown formatting from text so TTS won't read out symbols like **, ~~, etc. */
-function stripMarkdown(text: string): string {
-  let s = text;
-  // 图片 ![alt](url) → 移除整段
-  s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
-  // 链接 [text](url) → 只保留文字
-  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
-  // 删除线 ~~text~~
-  s = s.replace(/~~([^~]+)~~/g, '$1');
-  // 粗体 **text** 或 __text__
-  s = s.replace(/\*\*([^*]+)\*\*/g, '$1');
-  s = s.replace(/__([^_]+)__/g, '$1');
-  // 斜体 *text* 或 _text_（注意不要误杀列表前缀的 *，它们在行首且后面有空格）
-  s = s.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, '$1');
-  s = s.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '$1');
-  // 行首列表标记：- item / * item / + item → 只保留内容
-  s = s.replace(/^[\s]*[-*+]\s+/gm, '');
-  // 有序列表：1. item → 只保留内容
-  s = s.replace(/^[\s]*\d+\.\s+/gm, '');
-  // 行首标题标记 # → 去掉
-  s = s.replace(/^#+\s+/gm, '');
-  // 引用 > （行首） → 去掉
-  s = s.replace(/^>\s+/gm, '');
-  // 代码块 ```lang ... ``` → 去掉标记，保留内容
-  s = s.replace(/```[^\n]*\n?/g, '');
-  s = s.replace(/```/g, '');
-  // 行内代码 `code` → 去掉反引号
-  s = s.replace(/`([^`]+)`/g, '$1');
-  // HTML 标签 → 去掉
-  s = s.replace(/<[^>]+>/g, '');
-  // 多余空行合并
-  s = s.replace(/\n{3,}/g, '\n\n');
-  return s.trim();
-}
-
-function parseScriptContent(content: string, totalPages: number): PresentationScripts {
-  // 去掉文件头部元数据（blockquote > 行、# 一级标题行、斜体元数据行）
-  const cleanedLines = content.split('\n').filter(
-    (line) => !/^>\s/.test(line) && !/^#\s/.test(line) && !/^\*.*\*$/.test(line.trim()),
-  );
-  const cleaned = cleanedLines.join('\n').trim();
-
-  // 按 ## 标题或 --- 分隔线切分章节，同时记录标题用于识别开场/收尾/附录
-  const OPENING_RE = /开场|开篇|序幕/;
-  const CLOSING_RE = /收尾|结尾|结束|结语|总结|致谢|感谢/;
-  const APPENDIX_RE = /附[：:]|附录/;
-  const sections: { title: string; body: string }[] = [];
-  let curTitle = '';
-  let curBody = '';
-  for (const line of cleanedLines) {
-    if (/^##\s/.test(line)) {
-      if (curBody.trim()) sections.push({ title: curTitle, body: curBody.trim() });
-      curTitle = line.replace(/^##\s+/, '').trim();
-      curBody = '';
-    } else if (/^---/.test(line)) {
-      if (curBody.trim()) sections.push({ title: curTitle, body: curBody.trim() });
-      curTitle = '';
-      curBody = '';
-    } else {
-      curBody += line + '\n';
-    }
-  }
-  if (curBody.trim()) sections.push({ title: curTitle, body: curBody.trim() });
-
-  // 如果没有 ## 或 --- 分隔，按连续空行分割（无标题）
-  if (sections.length <= 1) {
-    const parts = cleaned.split(/\n{2,}/).filter((p) => p.trim());
-    sections.length = 0;
-    for (const p of parts) sections.push({ title: '', body: p.trim() });
-  }
-  if (sections.length === 0) sections.push({ title: '', body: cleaned });
-
-  // 提取开场白和收尾；附录类章节直接丢弃（不分配到页面）
-  let opening: string | undefined;
-  let closing: string | undefined;
-  const pageSections: string[] = [];
-  for (const sec of sections) {
-    if (!opening && OPENING_RE.test(sec.title)) {
-      opening = sec.body;
-    } else if (!closing && CLOSING_RE.test(sec.title)) {
-      closing = sec.body;
-    } else if (APPENDIX_RE.test(sec.title)) {
-      // 附录（时长控制建议等）不分配到页面
-    } else {
-      pageSections.push(sec.body);
-    }
-  }
-
-  // 均匀分配章节到每页：不足时循环使用已有章节
-  const scripts: PresentationScripts['scripts'] = [];
-  for (let i = 0; i < totalPages; i++) {
-    const idx = pageSections.length >= totalPages
-      ? i
-      : Math.floor(i * pageSections.length / totalPages);
-    const script = stripMarkdown(pageSections[idx] || pageSections[pageSections.length - 1] || `第${i + 1}页`);
-    scripts.push({ pageNo: i + 1, script });
-  }
-  return { opening: opening ? stripMarkdown(opening) : undefined, closing: closing ? stripMarkdown(closing) : undefined, scripts };
 }
 
 const scriptUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
@@ -260,6 +162,51 @@ apiRouter.put('/presentations/:id/kb', requirePresentationEditor, (req: Request,
     res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
+
+apiRouter.post(
+  '/presentations/:id/kb/upload',
+  requirePresentationEditor,
+  scriptUpload.single('kb'),
+  (req: Request, res: Response) => {
+    const id = safePresentationId(String(req.params.id ?? ''));
+    if (!id) {
+      res.status(400).json({ error: 'invalid presentation id' });
+      return;
+    }
+    const f = req.file;
+    if (!f) {
+      res.status(400).json({ error: '未上传文件（字段名应为 kb）' });
+      return;
+    }
+    const ext = (f.originalname || '').toLowerCase();
+    if (!ext.endsWith('.md') && !ext.endsWith('.txt') && !ext.endsWith('.markdown')) {
+      res.status(400).json({ error: '仅支持 .md / .txt / .markdown 文件' });
+      return;
+    }
+    try {
+      // 上传前确认 presentation 存在（manifest 必须可读，否则 writePresentationKb 也会失败）
+      readPresentationManifest(id);
+      const content = f.buffer.toString('utf-8');
+      const parsed = parseKbContent(content);
+      if (parsed.chunks.length === 0) {
+        res
+          .status(400)
+          .json({ error: '解析后未识别出任何条目（请检查文件内容是否为 Markdown 表格 / 标题段 / 段落）' });
+        return;
+      }
+      writePresentationKb(id, parsed);
+      invalidatePresentationCache(id);
+      res.json({
+        ok: true,
+        chunks: parsed.chunks.length,
+        sample: parsed.chunks.slice(0, 3).map((c) => ({ id: c.id, title: c.title })),
+        hint: '已写入磁盘 kb.json；已建会话仍使用旧稿，请新建会话后生效。',
+      });
+    } catch (e) {
+      res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+);
 
 apiRouter.get('/presentations/:id/assets/:file', (req: Request, res: Response) => {
   const id = String(req.params.id ?? '');

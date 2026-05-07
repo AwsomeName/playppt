@@ -347,6 +347,25 @@ export async function apiUploadScriptFile(presentationId: string, file: File): P
   return data as ScriptUploadResponse;
 }
 
+export interface KbUploadResponse {
+  ok: boolean;
+  chunks: number;
+  sample: Array<{ id: string; title: string }>;
+  hint: string;
+}
+
+export async function apiUploadKbFile(presentationId: string, file: File): Promise<KbUploadResponse> {
+  const fd = new FormData();
+  fd.set('kb', file);
+  const r = await fetch(`/api/presentations/${encodeURIComponent(presentationId)}/kb/upload`, {
+    method: 'POST',
+    body: fd,
+  });
+  const data = (await r.json().catch(() => ({}))) as KbUploadResponse & { error?: string };
+  if (!r.ok) throw new Error(data.error ?? r.statusText);
+  return data as KbUploadResponse;
+}
+
 export async function apiDeletePresentation(presentationId: string): Promise<{ ok: boolean }> {
   const r = await fetch(`/api/presentations/${encodeURIComponent(presentationId)}`, { method: 'DELETE' });
   const data = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };

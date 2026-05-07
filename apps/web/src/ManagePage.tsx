@@ -11,6 +11,7 @@ import {
   apiGetPresentationKb,
   apiPutPresentationKb,
   apiUploadScriptFile,
+  apiUploadKbFile,
   type PresentationListItem,
   type PresentationScriptsPayload,
 } from './api.js';
@@ -52,6 +53,7 @@ export function ManagePage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scriptFileInputRef = useRef<HTMLInputElement>(null);
+  const kbFileInputRef = useRef<HTMLInputElement>(null);
 
   // 全局播放偏好（写到 localStorage；PlayPage 启动时读同一个 key）。
   const [ttsSpeaker, setTtsSpeaker] = useState<string>(() => readPersistedSpeaker());
@@ -207,6 +209,34 @@ export function ManagePage() {
   const onScriptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) void handleScriptFileUpload(f);
+    e.target.value = '';
+  };
+
+  const handleKbFileUpload = async (file: File) => {
+    if (!selectedId) {
+      setErr('请先选择一个演示稿');
+      return;
+    }
+    const ext = file.name.toLowerCase();
+    if (!ext.endsWith('.md') && !ext.endsWith('.txt') && !ext.endsWith('.markdown')) {
+      setErr('仅支持 .md / .txt / .markdown 文件');
+      return;
+    }
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await apiUploadKbFile(selectedId, file);
+      setMsg(`知识库已上传：解析得到 ${r.chunks} 个条目`);
+      const updated = await apiGetPresentationKb(selectedId);
+      setKbJson(JSON.stringify(updated, null, 2));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onKbFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) void handleKbFileUpload(f);
     e.target.value = '';
   };
 
@@ -482,9 +512,34 @@ export function ManagePage() {
               background: 'rgba(99,102,241,0.06)',
               border: '1px solid rgba(99,102,241,0.18)',
             }}>
-              <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.9, marginBottom: 8 }}>
-                知识库 kb.json
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>知识库 kb.json</span>
+                <button
+                  type="button"
+                  onClick={() => kbFileInputRef.current?.click()}
+                  disabled={!editorEnabled}
+                  style={{
+                    marginLeft: 'auto',
+                    background: editorEnabled ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${editorEnabled ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: 4, padding: '0.2rem 0.5rem',
+                    color: editorEnabled ? '#86efac' : '#64748b',
+                    cursor: editorEnabled ? 'pointer' : 'default', fontSize: 12,
+                  }}
+                >
+                  上传知识库
+                </button>
+                <input
+                  ref={kbFileInputRef}
+                  type="file"
+                  accept=".md,.txt,.markdown"
+                  onChange={onKbFileChange}
+                  style={{ display: 'none' }}
+                />
               </div>
+              <span style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5, marginBottom: 6, display: 'block' }}>
+                支持 .md/.txt/.markdown：每个 Markdown 表格、## 标题段或段落自动解析为一个 chunk，写入 kb.json
+              </span>
               <textarea
                 value={kbJson}
                 onChange={(e) => setKbJson(e.target.value)}
